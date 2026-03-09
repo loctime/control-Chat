@@ -3,6 +3,8 @@ import { Timestamp } from "firebase/firestore";
 export type MessageType = "text" | "file" | "image" | "video" | "link";
 
 export type DeviceType = "mobile" | "desktop";
+export type MessageStatus = "sending" | "sent" | "failed";
+export type ReactionMap = Record<string, string[]>;
 
 export interface ReplyTarget {
   id: string;
@@ -13,9 +15,15 @@ export interface ReplyTarget {
 interface MessageBase {
   id: string;
   createdAt: Timestamp | null;
+  updatedAt?: Timestamp | null;
+  editedAt?: Timestamp | null;
+  deletedAt?: Timestamp | null;
   device: DeviceType;
+  status?: MessageStatus;
+  clientId?: string | null;
   starred: boolean;
   author: string;
+  reactions?: ReactionMap;
   replyToId: string | null;
   replyToText: string | null;
   replyToAuthor: string | null;

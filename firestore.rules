@@ -1,4 +1,4 @@
-﻿rules_version = '2';
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
@@ -7,6 +7,18 @@ service cloud.firestore {
 
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function hasOptionalString(data, key) {
+      return !data.keys().hasAny([key]) || data[key] == null || data[key] is string;
+    }
+
+    function hasOptionalTimestamp(data, key) {
+      return !data.keys().hasAny([key]) || data[key] == null || data[key] is timestamp;
+    }
+
+    function validReactions(data) {
+      return !data.keys().hasAny(['reactions']) || data.reactions is map;
     }
 
     function validCommonMessageFields(data) {
@@ -18,15 +30,36 @@ service cloud.firestore {
           'fileType',
           'storagePath',
           'createdAt',
+          'updatedAt',
+          'editedAt',
+          'deletedAt',
           'device',
           'size',
-          'starred'
+          'starred',
+          'status',
+          'clientId',
+          'author',
+          'reactions',
+          'replyToId',
+          'replyToText',
+          'replyToAuthor'
         ])
         && data.type in ['text', 'link', 'image', 'video', 'file']
         && data.device in ['mobile', 'desktop']
         && data.starred is bool
         && data.createdAt is timestamp
-        && data.text is string;
+        && data.updatedAt is timestamp
+        && hasOptionalTimestamp(data, 'editedAt')
+        && hasOptionalTimestamp(data, 'deletedAt')
+        && data.text is string
+        && data.author is string
+        && data.author.size() > 0
+        && hasOptionalString(data, 'clientId')
+        && (!data.keys().hasAny(['status']) || data.status in ['sending', 'sent', 'failed'])
+        && hasOptionalString(data, 'replyToId')
+        && hasOptionalString(data, 'replyToText')
+        && hasOptionalString(data, 'replyToAuthor')
+        && validReactions(data);
     }
 
     function validTextLikeMessage(data) {
@@ -55,7 +88,7 @@ service cloud.firestore {
         && data.text.size() <= 2000;
     }
 
-    function validCreateMessage(data) {
+    function validMessageDocument(data) {
       return validCommonMessageFields(data) && (validTextLikeMessage(data) || validFileLikeMessage(data));
     }
 
@@ -68,11 +101,18 @@ service cloud.firestore {
         allow read: if isOwner(userId);
 
         allow create: if isOwner(userId)
-          && validCreateMessage(request.resource.data);
+          && validMessageDocument(request.resource.data);
 
         allow update: if isOwner(userId)
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['starred'])
-          && request.resource.data.starred is bool;
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'starred',
+              'status',
+              'text',
+              'editedAt',
+              'updatedAt',
+              'reactions'
+            ])
+          && validMessageDocument(request.resource.data);
 
         allow delete: if isOwner(userId);
       }

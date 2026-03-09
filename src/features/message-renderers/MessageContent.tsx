@@ -1,4 +1,4 @@
-﻿import { Message } from "../../lib/types";
+import { Message } from "../../lib/types";
 
 const formatSize = (size: number | null) => {
   if (!size) return "";
@@ -32,6 +32,18 @@ export const MessageContent = ({ message }: Props) => {
           <small>{formatSize(message.size)}</small>
         </span>
       </a>
+    );
+  }
+
+  if ((message.type === "image" || message.type === "video" || message.type === "file") && !message.fileURL) {
+    return (
+      <div className="file-row" aria-live="polite">
+        <span className="file-icon">SUB</span>
+        <span>
+          <strong>{message.fileName}</strong>
+          <small>{message.status === "failed" ? "Fallo de carga" : "Cargando archivo..."}</small>
+        </span>
+      </div>
     );
   }
 

@@ -7,10 +7,15 @@ interface Props {
   messages: Message[];
   search: string;
   loading: boolean;
+  currentUserId: string;
   onCopy: (text: string) => void;
   onDelete: (message: Message) => void;
   onToggleStar: (message: Message) => void;
   onReply: (message: Message) => void;
+  onRetryMessage: (message: Message) => void;
+  onEditMessage: (message: Message, nextText: string) => Promise<boolean>;
+  onToggleReaction: (message: Message, emoji: string) => void;
+  onEnsureMessageLoaded: (messageId: string) => Promise<boolean>;
   onLoadMore: () => void;
   loadingMore: boolean;
   hasMore: boolean;
@@ -30,10 +35,15 @@ export const MessageList = ({
   messages,
   search,
   loading,
+  currentUserId,
   onCopy,
   onDelete,
   onToggleStar,
   onReply,
+  onRetryMessage,
+  onEditMessage,
+  onToggleReaction,
+  onEnsureMessageLoaded,
   onLoadMore,
   loadingMore,
   hasMore,
@@ -42,6 +52,8 @@ export const MessageList = ({
   const listRef = useRef<VirtuosoHandle | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [replyJumpError, setReplyJumpError] = useState<string | null>(null);
   const previousCount = useRef(0);
 
   const normalizedSearch = search.toLowerCase();
@@ -55,17 +67,37 @@ export const MessageList = ({
     [messages, normalizedSearch]
   );
 
-  const scrollToMessage = (messageId: string) => {
-    const index = filtered.findIndex((msg) => msg.id === messageId);
-    if (index === -1) return;
+  const scrollToBottom = () => {
+    listRef.current?.scrollToIndex({ index: Math.max(filtered.length - 1, 0), behavior: "smooth", align: "end" });
+    setUnreadCount(0);
+    setReplyJumpError(null);
+  };
+
+  const scrollToMessage = async (messageId: string) => {
+    setReplyJumpError(null);
+
+    let index = filtered.findIndex((msg) => msg.id === messageId);
+
+    if (index === -1) {
+      const loaded = await onEnsureMessageLoaded(messageId);
+      if (!loaded) {
+        setReplyJumpError("No se encontro el mensaje citado.");
+        return;
+      }
+      index = filtered.findIndex((msg) => msg.id === messageId);
+    }
+
+    if (index === -1) {
+      setReplyJumpError("No se pudo navegar al mensaje citado con el filtro actual.");
+      return;
+    }
 
     listRef.current?.scrollToIndex({ index, align: "center", behavior: "smooth" });
 
     window.setTimeout(() => {
       const target = document.getElementById(`message-${messageId}`);
       target?.scrollIntoView({ behavior: "smooth", block: "center" });
-      
-      // Add highlight effect
+
       setHighlightedMessageId(messageId);
       window.setTimeout(() => setHighlightedMessageId(null), 2000);
     }, 150);
@@ -73,11 +105,27 @@ export const MessageList = ({
 
   useEffect(() => {
     const hasNewMessages = filtered.length > previousCount.current;
-    if (hasNewMessages && isAtBottom) {
-      listRef.current?.scrollToIndex({ index: Math.max(filtered.length - 1, 0), behavior: "smooth" });
+    if (!hasNewMessages) {
+      previousCount.current = filtered.length;
+      return;
     }
+
+    const newItems = filtered.length - previousCount.current;
+    if (isAtBottom) {
+      listRef.current?.scrollToIndex({ index: Math.max(filtered.length - 1, 0), behavior: "smooth" });
+      setUnreadCount(0);
+    } else {
+      setUnreadCount((prev) => prev + newItems);
+    }
+
     previousCount.current = filtered.length;
   }, [filtered.length, isAtBottom]);
+
+  useEffect(() => {
+    if (isAtBottom) {
+      setUnreadCount(0);
+    }
+  }, [isAtBottom]);
 
   useEffect(() => {
     if (isAtBottom && Object.keys(uploadsProgress).length > 0) {
@@ -100,6 +148,7 @@ export const MessageList = ({
 
   return (
     <div className="message-list" id="chat-scroll">
+      {replyJumpError ? <div className="status-banner">{replyJumpError}</div> : null}
       <Virtuoso
         ref={listRef}
         style={{ height: "100%" }}
@@ -140,10 +189,14 @@ export const MessageList = ({
               {showDate ? <p className="date-chip">{currentDate}</p> : null}
               <MessageBubble
                 message={message}
+                currentUserId={currentUserId}
                 onCopy={onCopy}
                 onDelete={onDelete}
                 onToggleStar={onToggleStar}
                 onReply={onReply}
+                onRetry={() => onRetryMessage(message)}
+                onEdit={(nextText) => onEditMessage(message, nextText)}
+                onToggleReaction={(emoji) => onToggleReaction(message, emoji)}
                 onNavigateToMessage={scrollToMessage}
                 isHighlighted={highlightedMessageId === message.id}
               />
@@ -151,6 +204,13 @@ export const MessageList = ({
           );
         }}
       />
+
+      {!isAtBottom && unreadCount > 0 ? (
+        <button type="button" className="unread-cta" onClick={scrollToBottom}>
+          {unreadCount} nuevo{unreadCount > 1 ? "s" : ""} - Ir al final
+        </button>
+      ) : null}
     </div>
   );
 };
+

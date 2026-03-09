@@ -1,13 +1,17 @@
-﻿import { KeyboardEvent, MouseEvent, useEffect, useRef } from "react";
+import { KeyboardEvent, MouseEvent, useEffect, useRef } from "react";
 
 interface Props {
   x: number;
   y: number;
   canOpen: boolean;
+  canEdit: boolean;
+  canRetry: boolean;
   isStarred: boolean;
   canCopy: boolean;
   onCopy: () => void;
   onOpen: () => void;
+  onEdit: () => void;
+  onRetry: () => void;
   onToggleStar: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -18,10 +22,14 @@ export const MessageContextMenu = ({
   x,
   y,
   canOpen,
+  canEdit,
+  canRetry,
   isStarred,
   canCopy,
   onCopy,
   onOpen,
+  onEdit,
+  onRetry,
   onToggleStar,
   onDelete,
   onClose,
@@ -98,6 +106,16 @@ export const MessageContextMenu = ({
         {canOpen ? (
           <button type="button" role="menuitem" onClick={onOpen}>
             Abrir archivo
+          </button>
+        ) : null}
+        {canEdit ? (
+          <button type="button" role="menuitem" onClick={onEdit}>
+            Editar
+          </button>
+        ) : null}
+        {canRetry ? (
+          <button type="button" role="menuitem" onClick={onRetry}>
+            Reintentar envio
           </button>
         ) : null}
         <button type="button" role="menuitem" onClick={onToggleStar}>

@@ -15,7 +15,7 @@ interface Props {
 }
 
 export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Props) => {
-  const composerRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const authorName = user.displayName?.trim() || user.email || "Anonimo";
 
   const {
@@ -26,6 +26,7 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
     sendError,
     sendText,
     sendFile,
+    retryMessage,
     retryLastFailedSend,
     clearError,
     clearSendError,
@@ -34,7 +35,10 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
     hasMore,
     uploadsProgress,
     toggleStar,
+    editMessage,
+    toggleReaction,
     deleteMessage,
+    ensureMessageLoaded,
     fromCache,
     hasPendingWrites
   } = useMessages(user.uid, authorName);
@@ -71,6 +75,17 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
 
   const handleToggleStar = useCallback((message: Message) => toggleStar(message.id, message.starred), [toggleStar]);
   const handleDelete = useCallback((message: Message) => deleteMessage(message), [deleteMessage]);
+  const handleRetryMessage = useCallback((message: Message) => void retryMessage(message.id), [retryMessage]);
+  const handleEditMessage = useCallback(
+    (message: Message, nextText: string) => editMessage(message.id, nextText),
+    [editMessage]
+  );
+  const handleToggleReaction = useCallback(
+    (message: Message, emoji: string) => {
+      void toggleReaction(message.id, emoji);
+    },
+    [toggleReaction]
+  );
 
   const handleReply = useCallback((message: Message) => {
     setReplyToMessage({
@@ -101,7 +116,18 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
       {!isOffline && syncLabel ? <div className="status-banner">{syncLabel}</div> : null}
 
       {error ? (
-        <div className="error-banner" onClick={clearError} role="button" tabIndex={0}>
+        <div
+          className="error-banner"
+          onClick={clearError}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              clearError();
+            }
+          }}
+        >
           {error}
         </div>
       ) : null}
@@ -110,10 +136,15 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
         messages={messages}
         search={search}
         loading={loading}
+        currentUserId={user.uid}
         onCopy={copyToClipboard}
         onDelete={handleDelete}
         onToggleStar={handleToggleStar}
         onReply={handleReply}
+        onRetryMessage={handleRetryMessage}
+        onEditMessage={handleEditMessage}
+        onToggleReaction={handleToggleReaction}
+        onEnsureMessageLoaded={ensureMessageLoaded}
         onLoadMore={loadMore}
         loadingMore={loadingMore}
         hasMore={hasMore}

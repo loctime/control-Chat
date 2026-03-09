@@ -2,11 +2,13 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   startAfter,
@@ -18,7 +20,7 @@ import {
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { db, storage } from "./firebase";
 import { appPath } from "./paths";
-import { DeviceType, Message, MessageType, ReplyTarget } from "./types";
+import { DeviceType, Message, MessageStatus, MessageType, ReplyTarget } from "./types";
 
 const PAGE_SIZE_MOBILE = 30;
 const PAGE_SIZE_DESKTOP = 60;
@@ -54,6 +56,26 @@ const mapReply = (data: DocumentData) => ({
   replyToAuthor: typeof data.replyToAuthor === "string" ? data.replyToAuthor : null
 });
 
+const mapStatus = (value: unknown): MessageStatus => {
+  if (value === "sending" || value === "failed") return value;
+  return "sent";
+};
+
+const mapReactions = (value: unknown) => {
+  if (!value || typeof value !== "object") return {};
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  const normalized = entries
+    .filter(([emoji]) => typeof emoji === "string" && emoji.length > 0)
+    .map(([emoji, users]) => [
+      emoji,
+      Array.isArray(users) ? users.filter((uid) => typeof uid === "string") : []
+    ] as const)
+    .filter(([, users]) => users.length > 0);
+
+  return Object.fromEntries(normalized);
+};
+
 const mapMessage = (docSnap: QueryDocumentSnapshot<DocumentData>): Message => {
   const data = docSnap.data();
   const type = (data.type as MessageType) ?? "text";
@@ -61,9 +83,15 @@ const mapMessage = (docSnap: QueryDocumentSnapshot<DocumentData>): Message => {
   const base = {
     id: docSnap.id,
     createdAt: data.createdAt ?? null,
+    updatedAt: data.updatedAt ?? null,
+    editedAt: data.editedAt ?? null,
+    deletedAt: data.deletedAt ?? null,
     device: (data.device as DeviceType) ?? "desktop",
+    status: mapStatus(data.status),
+    clientId: typeof data.clientId === "string" ? data.clientId : docSnap.id,
     starred: Boolean(data.starred),
     author: typeof data.author === "string" ? data.author : "Anonimo",
+    reactions: mapReactions(data.reactions),
     ...mapReply(data)
   };
 
@@ -114,7 +142,7 @@ const validateFile = (file: File) => {
   }
 
   if (!file.type) {
-    return;
+    throw new Error("El archivo no tiene tipo MIME valido.");
   }
 
   const isAllowed =
@@ -137,7 +165,13 @@ const mapReplyPayload = (replyTo?: ReplyTarget | null) => {
   };
 };
 
-const buildTextPayload = (value: string, author: string, replyTo?: ReplyTarget | null) => {
+const buildTextPayload = (
+  value: string,
+  author: string,
+  clientId: string,
+  status: MessageStatus,
+  replyTo?: ReplyTarget | null
+) => {
   const text = normalizeText(value);
   if (!text) return null;
 
@@ -151,9 +185,15 @@ const buildTextPayload = (value: string, author: string, replyTo?: ReplyTarget |
     fileType: null,
     storagePath: null,
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    editedAt: null,
+    deletedAt: null,
     device: deviceType(),
     size: null,
     starred: false,
+    status,
+    clientId,
+    reactions: {},
     author,
     ...mapReplyPayload(replyTo)
   };
@@ -166,6 +206,8 @@ const buildFilePayload = (
   file: File,
   caption: string,
   author: string,
+  clientId: string,
+  status: MessageStatus,
   replyTo?: ReplyTarget | null
 ) => {
   const normalizedCaption = normalizeText(caption);
@@ -179,9 +221,15 @@ const buildFilePayload = (
     fileType: file.type || null,
     storagePath,
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    editedAt: null,
+    deletedAt: null,
     device: deviceType(),
     size: file.size,
     starred: false,
+    status,
+    clientId,
+    reactions: {},
     author,
     ...mapReplyPayload(replyTo)
   };
@@ -197,6 +245,8 @@ export interface LatestMessagesPayload {
   pageSize: number;
   changes: DocumentChange<DocumentData>[];
 }
+
+export const buildClientId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 export const subscribeToLatestMessages = (
   uid: string,
@@ -242,6 +292,12 @@ export const fetchOlderMessages = async (
   };
 };
 
+export const fetchMessageById = async (uid: string, messageId: string) => {
+  const snap = await getDoc(doc(messagesCollection(uid), messageId));
+  if (!snap.exists()) return null;
+  return mapMessage(snap as QueryDocumentSnapshot<DocumentData>);
+};
+
 export const applyMessageChanges = (current: Message[], changes: DocumentChange<DocumentData>[]) => {
   const nextById = new Map(current.map((message) => [message.id, message]));
 
@@ -257,12 +313,20 @@ export const applyMessageChanges = (current: Message[], changes: DocumentChange<
   return [...nextById.values()].sort((a, b) => toEpoch(a) - toEpoch(b));
 };
 
-export const sendTextMessage = async (uid: string, value: string, author: string, replyTo?: ReplyTarget | null) => {
-  const payload = buildTextPayload(value, author, replyTo);
-  if (!payload) return;
+export const sendTextMessage = async (
+  uid: string,
+  value: string,
+  author: string,
+  replyTo?: ReplyTarget | null,
+  providedClientId?: string
+) => {
+  const clientId = providedClientId ?? buildClientId();
+  const payload = buildTextPayload(value, author, clientId, "sent", replyTo);
+  if (!payload) return null;
 
-  const msgRef = doc(messagesCollection(uid));
-  await setDoc(msgRef, payload);
+  const msgRef = doc(messagesCollection(uid), clientId);
+  await setDoc(msgRef, payload, { merge: true });
+  return clientId;
 };
 
 export const sendFileMessageWithProgress = async (
@@ -271,14 +335,18 @@ export const sendFileMessageWithProgress = async (
   caption = "",
   author: string,
   replyTo?: ReplyTarget | null,
-  onProgress?: (value: number) => void
+  onProgress?: (value: number) => void,
+  providedClientId?: string
 ) => {
   validateFile(file);
 
-  const msgRef = doc(messagesCollection(uid));
+  const clientId = providedClientId ?? buildClientId();
+  const msgRef = doc(messagesCollection(uid), clientId);
   const storagePath = `user-files/${uid}/${msgRef.id}/${file.name}`;
   const storageRef = ref(storage, storagePath);
-  const uploadTask = uploadBytesResumable(storageRef, file);
+  const uploadTask = uploadBytesResumable(storageRef, file, {
+    contentType: file.type
+  });
 
   await new Promise<void>((resolve, reject) => {
     uploadTask.on(
@@ -295,14 +363,66 @@ export const sendFileMessageWithProgress = async (
 
   const url = await getDownloadURL(storageRef);
   const type: MessageType = isImage(file) ? "image" : isVideo(file) ? "video" : "file";
-  const payload = buildFilePayload(type, url, storagePath, file, caption, author, replyTo);
+  const payload = buildFilePayload(type, url, storagePath, file, caption, author, clientId, "sent", replyTo);
 
-  await setDoc(msgRef, payload);
+  await setDoc(msgRef, payload, { merge: true });
+  return clientId;
+};
+
+export const updateMessageStatus = async (uid: string, messageId: string, status: MessageStatus) => {
+  await updateDoc(doc(messagesCollection(uid), messageId), {
+    status,
+    updatedAt: serverTimestamp()
+  });
+};
+
+export const editMessageText = async (uid: string, messageId: string, nextText: string) => {
+  const normalized = normalizeText(nextText);
+  if (!normalized) {
+    throw new Error("El mensaje editado no puede quedar vacio.");
+  }
+
+  validateTextLength(normalized, "El mensaje");
+
+  await updateDoc(doc(messagesCollection(uid), messageId), {
+    text: normalized,
+    editedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+};
+
+export const toggleMessageReaction = async (uid: string, messageId: string, emoji: string, actorUid: string) => {
+  const messageRef = doc(messagesCollection(uid), messageId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(messageRef);
+    if (!snap.exists()) {
+      throw new Error("No se encontro el mensaje para reaccionar.");
+    }
+
+    const data = snap.data();
+    const reactions = mapReactions(data.reactions);
+    const list = Array.isArray(reactions[emoji]) ? [...reactions[emoji]] : [];
+    const hasReaction = list.includes(actorUid);
+    const nextList = hasReaction ? list.filter((entry) => entry !== actorUid) : [...list, actorUid];
+
+    if (nextList.length > 0) {
+      reactions[emoji] = nextList;
+    } else {
+      delete reactions[emoji];
+    }
+
+    tx.update(messageRef, {
+      reactions,
+      updatedAt: serverTimestamp()
+    });
+  });
 };
 
 export const toggleMessageStar = async (uid: string, messageId: string, starred: boolean) => {
   await updateDoc(doc(messagesCollection(uid), messageId), {
-    starred: !starred
+    starred: !starred,
+    updatedAt: serverTimestamp()
   });
 };
 

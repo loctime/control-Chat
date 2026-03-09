@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   ClipboardEvent,
   FormEvent,
+  KeyboardEvent,
   forwardRef,
   useEffect,
   useImperativeHandle,
@@ -25,7 +26,7 @@ interface Props {
   onClearReplyToMessage: () => void;
 }
 
-export const Composer = forwardRef<HTMLInputElement, Props>(
+export const Composer = forwardRef<HTMLTextAreaElement, Props>(
   (
     {
       onSendText,
@@ -55,9 +56,16 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
       }
     }, [selectedFile]);
 
-    const messageInputRef = useRef<HTMLInputElement>(null);
+    const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
     useImperativeHandle(ref, () => messageInputRef.current!);
+
+    useEffect(() => {
+      const input = messageInputRef.current;
+      if (!input) return;
+      input.style.height = "0px";
+      input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+    }, [caption, text, selectedFile]);
 
     const onPickFile = (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
@@ -67,7 +75,7 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
       }
     };
 
-    const onPaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
       const items = Array.from(event.clipboardData.items);
       const image = items.find((item) => item.type.startsWith("image/"));
       if (!image) return;
@@ -101,6 +109,19 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
       if (!sent) return;
       setText("");
       onClearReplyToMessage();
+    };
+
+    const onInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Escape" && replyToMessage) {
+        event.preventDefault();
+        onClearReplyToMessage();
+        return;
+      }
+
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        void send(event as unknown as FormEvent);
+      }
     };
 
     return (
@@ -140,17 +161,19 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
         ) : null}
 
         <div className="composer-row">
-          <label className="attach-btn" htmlFor="file-input" title="Adjuntar archivo">
+          <label className="attach-btn" htmlFor="file-input" title="Adjuntar archivo" aria-label="Adjuntar archivo">
             +
           </label>
           <input id="file-input" type="file" hidden ref={fileInputRef} onChange={onPickFile} />
 
-          <input
+          <textarea
             ref={messageInputRef}
             className="message-input"
             placeholder={selectedFile ? "Agrega un texto opcional" : "Escribi un mensaje para vos"}
             value={selectedFile ? caption : text}
             onPaste={onPaste}
+            rows={1}
+            onKeyDown={onInputKeyDown}
             onChange={(e) => {
               onClearSendError();
               if (selectedFile) {

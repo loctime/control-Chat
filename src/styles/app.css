@@ -686,3 +686,112 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, white);
+  outline-offset: 2px;
+}
+
+.message-input {
+  width: 100%;
+  resize: none;
+  line-height: 1.35;
+  padding: 0.55rem 0.8rem;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.bubble-editor {
+  width: 100%;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.bubble-editor textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-elevated);
+  color: var(--text);
+  padding: 0.45rem 0.6rem;
+  resize: vertical;
+}
+
+.bubble-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.3rem;
+}
+
+.status-chip {
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.68rem;
+  border: 1px solid var(--line);
+}
+
+.status-sending {
+  color: #f59e0b;
+}
+
+.status-failed {
+  color: #f87171;
+  border-color: #f87171;
+}
+
+.status-sent {
+  color: var(--muted);
+}
+
+.reaction-row {
+  margin-top: 0.35rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.reaction-btn {
+  border: 1px solid var(--line);
+  background: var(--surface-elevated);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  padding: 0.1rem 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  cursor: pointer;
+}
+
+.reaction-btn.active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.reaction-summary {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.unread-cta {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #052e16;
+  font-weight: 700;
+  padding: 0.45rem 0.75rem;
+  box-shadow: 0 10px 20px rgba(2, 6, 23, 0.25);
+  cursor: pointer;
+  z-index: 5;
+}
+
+.message-list {
+  position: relative;
+}
