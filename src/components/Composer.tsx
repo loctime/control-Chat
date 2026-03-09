@@ -54,19 +54,8 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
     const [pickedFile, setPickedFile] = useState<File | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const shouldAutoSendRef = useRef(false);
     const micPressedRef = useRef(false);
     const dictationBaseRef = useRef("");
-
-    const onSendTextRef = useRef(onSendText);
-    const replyToMessageRef = useRef(replyToMessage);
-    const onClearReplyToMessageRef = useRef(onClearReplyToMessage);
-
-    useEffect(() => {
-      onSendTextRef.current = onSendText;
-      replyToMessageRef.current = replyToMessage;
-      onClearReplyToMessageRef.current = onClearReplyToMessage;
-    }, [onSendText, replyToMessage, onClearReplyToMessage]);
 
     const {
       startRecording,
@@ -82,20 +71,9 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
         const nextText = `${dictationBaseRef.current}${dictationBaseRef.current && liveTranscript ? " " : ""}${liveTranscript}`.trim();
         setText(nextText);
       },
-      onEnd: async (finalTranscript) => {
+      onEnd: (finalTranscript) => {
         const mergedText = `${dictationBaseRef.current}${dictationBaseRef.current && finalTranscript ? " " : ""}${finalTranscript}`.trim();
         setText(mergedText);
-
-        if (!shouldAutoSendRef.current) return;
-        shouldAutoSendRef.current = false;
-
-        if (!mergedText) return;
-
-        const sent = await onSendTextRef.current(mergedText, replyToMessageRef.current);
-        if (!sent) return;
-
-        setText("");
-        onClearReplyToMessageRef.current();
       }
     });
 
@@ -178,7 +156,6 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
     const beginDictation = () => {
       const base = text.trim();
       dictationBaseRef.current = base;
-      shouldAutoSendRef.current = false;
       onClearSendError();
       startRecording();
     };
@@ -204,7 +181,6 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
-      shouldAutoSendRef.current = true;
       stopRecording();
     };
 
@@ -216,7 +192,6 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
-      shouldAutoSendRef.current = false;
       cancelRecording();
       setText(dictationBaseRef.current);
     };
@@ -226,7 +201,6 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
       if (sending || isOffline || selectedFile) return;
 
       if (isStarting || isRecording) {
-        shouldAutoSendRef.current = true;
         stopRecording();
         return;
       }
@@ -351,7 +325,6 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
               type="button"
               className="dictation-cancel-btn"
               onClick={() => {
-                shouldAutoSendRef.current = false;
                 micPressedRef.current = false;
                 cancelRecording();
                 setText(dictationBaseRef.current);
@@ -371,4 +344,3 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
 );
 
 Composer.displayName = "Composer";
-
