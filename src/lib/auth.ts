@@ -5,6 +5,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -38,8 +39,16 @@ export const completeRedirectSignIn = async () => {
 
 export const loginWithGoogle = async () => {
   googleProvider.setCustomParameters({ prompt: "select_account" });
-  const result = await signInWithPopup(auth, googleProvider);
-  await ensureUserProfile(result.user);
+  
+  // Use redirect for mobile, popup for desktop
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
+  if (isMobile) {
+    await signInWithRedirect(auth, googleProvider);
+  } else {
+    const result = await signInWithPopup(auth, googleProvider);
+    await ensureUserProfile(result.user);
+  }
 };
 
 export const loginWithEmail = async (email: string, password: string) => {
