@@ -20,9 +20,10 @@ interface Props {
   onToggleStar: (message: Message) => void;
   onReply: (message: Message) => void;
   onNavigateToMessage: (messageId: string) => void;
+  isHighlighted?: boolean;
 }
 
-const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar, onReply, onNavigateToMessage }: Props) => {
+const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar, onReply, onNavigateToMessage, isHighlighted = false }: Props) => {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const time = formatHour(message.createdAt?.seconds);
@@ -59,7 +60,10 @@ const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar, onReply, o
     window.addEventListener("touchcancel", clear);
   };
 
-  const messageTypeClass = useMemo(() => `bubble bubble-${message.type}`, [message.type]);
+  const messageTypeClass = useMemo(() => {
+    const baseClass = `bubble bubble-${message.type}`;
+    return isHighlighted ? `${baseClass} bubble-highlighted` : baseClass;
+  }, [message.type, isHighlighted]);
 
   return (
     <article

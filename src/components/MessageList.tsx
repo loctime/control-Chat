@@ -41,6 +41,7 @@ export const MessageList = ({
 }: Props) => {
   const listRef = useRef<VirtuosoHandle | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const previousCount = useRef(0);
 
   const normalizedSearch = search.toLowerCase();
@@ -63,6 +64,10 @@ export const MessageList = ({
     window.setTimeout(() => {
       const target = document.getElementById(`message-${messageId}`);
       target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      
+      // Add highlight effect
+      setHighlightedMessageId(messageId);
+      window.setTimeout(() => setHighlightedMessageId(null), 2000);
     }, 150);
   };
 
@@ -140,6 +145,7 @@ export const MessageList = ({
                 onToggleStar={onToggleStar}
                 onReply={onReply}
                 onNavigateToMessage={scrollToMessage}
+                isHighlighted={highlightedMessageId === message.id}
               />
             </div>
           );

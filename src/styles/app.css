@@ -254,6 +254,27 @@ h1 {
   box-shadow: 0 8px 20px rgba(2, 6, 23, 0.25);
 }
 
+.bubble-highlighted {
+  animation: messageHighlight 2s ease-out;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+@keyframes messageHighlight {
+  0% {
+    background-color: color-mix(in srgb, var(--primary) 40%, transparent);
+    transform: scale(1.02);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+    transform: scale(1.01);
+  }
+  100% {
+    background-color: var(--bubble-own);
+    transform: scale(1);
+  }
+}
+
 .bubble-image,
 .bubble-video {
   width: 100%;
