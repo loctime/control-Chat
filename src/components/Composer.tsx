@@ -28,6 +28,8 @@ interface Props {
   onClearReplyToMessage: () => void;
 }
 
+type VoiceMode = "hold" | "toggle";
+
 export const Composer = forwardRef<HTMLTextAreaElement, Props>(
   (
     {
@@ -45,16 +47,57 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
     },
     ref
   ) => {
+    const voiceMode: VoiceMode = import.meta.env.VITE_VOICE_MODE === "toggle" ? "toggle" : "hold";
+
     const [text, setText] = useState("");
     const [caption, setCaption] = useState("");
     const [pickedFile, setPickedFile] = useState<File | null>(null);
 
-    const [dictationBase, setDictationBase] = useState("");
-
     const fileInputRef = useRef<HTMLInputElement>(null);
     const shouldAutoSendRef = useRef(false);
+    const micPressedRef = useRef(false);
+    const dictationBaseRef = useRef("");
 
-    const { startRecording, stopRecording, isRecording, isProcessing, transcript, error: speechError, isSupported } = useSpeechRecognition();
+    const onSendTextRef = useRef(onSendText);
+    const replyToMessageRef = useRef(replyToMessage);
+    const onClearReplyToMessageRef = useRef(onClearReplyToMessage);
+
+    useEffect(() => {
+      onSendTextRef.current = onSendText;
+      replyToMessageRef.current = replyToMessage;
+      onClearReplyToMessageRef.current = onClearReplyToMessage;
+    }, [onSendText, replyToMessage, onClearReplyToMessage]);
+
+    const {
+      startRecording,
+      stopRecording,
+      cancelRecording,
+      isStarting,
+      isRecording,
+      isProcessing,
+      error: speechError,
+      isSupported
+    } = useSpeechRecognition({
+      onTranscriptChange: (liveTranscript) => {
+        const nextText = `${dictationBaseRef.current}${dictationBaseRef.current && liveTranscript ? " " : ""}${liveTranscript}`.trim();
+        setText(nextText);
+      },
+      onEnd: async (finalTranscript) => {
+        const mergedText = `${dictationBaseRef.current}${dictationBaseRef.current && finalTranscript ? " " : ""}${finalTranscript}`.trim();
+        setText(mergedText);
+
+        if (!shouldAutoSendRef.current) return;
+        shouldAutoSendRef.current = false;
+
+        if (!mergedText) return;
+
+        const sent = await onSendTextRef.current(mergedText, replyToMessageRef.current);
+        if (!sent) return;
+
+        setText("");
+        onClearReplyToMessageRef.current();
+      }
+    });
 
     const selectedFile = pendingFile ?? pickedFile;
 
@@ -74,28 +117,6 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
       input.style.height = "0px";
       input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
     }, [caption, text, selectedFile]);
-
-    useEffect(() => {
-      if (!isRecording && !isProcessing) return;
-      const nextText = `${dictationBase}${dictationBase && transcript ? " " : ""}${transcript}`.trim();
-      setText(nextText);
-    }, [dictationBase, transcript, isRecording, isProcessing]);
-
-    useEffect(() => {
-      if (!shouldAutoSendRef.current) return;
-      if (isRecording || isProcessing) return;
-
-      shouldAutoSendRef.current = false;
-      const dictated = text.trim();
-      if (!dictated) return;
-
-      void (async () => {
-        const sent = await onSendText(dictated, replyToMessage);
-        if (!sent) return;
-        setText("");
-        onClearReplyToMessage();
-      })();
-    }, [isRecording, isProcessing, onClearReplyToMessage, onSendText, replyToMessage, text]);
 
     const onPickFile = (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
@@ -154,21 +175,31 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
       }
     };
 
-    const handleMicPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-      if (sending || isOffline || isProcessing || selectedFile) return;
-
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      onClearSendError();
+    const beginDictation = () => {
+      const base = text.trim();
+      dictationBaseRef.current = base;
       shouldAutoSendRef.current = false;
-      setDictationBase(text.trim());
+      onClearSendError();
       startRecording();
     };
 
-    const handleMicPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
-      if (!isRecording) return;
+    const handleMicPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+      if (voiceMode !== "hold") return;
+      if (sending || isOffline || selectedFile) return;
 
       event.preventDefault();
+      micPressedRef.current = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      beginDictation();
+    };
+
+    const handleMicPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
+      if (voiceMode !== "hold") return;
+      if (!micPressedRef.current) return;
+
+      event.preventDefault();
+      micPressedRef.current = false;
+
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
@@ -178,14 +209,39 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
     };
 
     const handleMicCancel = (event: PointerEvent<HTMLButtonElement>) => {
+      if (voiceMode !== "hold") return;
+
+      micPressedRef.current = false;
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
       shouldAutoSendRef.current = false;
-      stopRecording();
-      setText(dictationBase);
+      cancelRecording();
+      setText(dictationBaseRef.current);
     };
+
+    const handleToggleClick = () => {
+      if (voiceMode !== "toggle") return;
+      if (sending || isOffline || selectedFile) return;
+
+      if (isStarting || isRecording) {
+        shouldAutoSendRef.current = true;
+        stopRecording();
+        return;
+      }
+
+      if (isProcessing) return;
+      beginDictation();
+    };
+
+    const voiceStatusLabel = isStarting
+      ? "Preparando microfono..."
+      : isRecording
+      ? "Escuchando..."
+      : isProcessing
+      ? "Procesando..."
+      : null;
 
     return (
       <form className="composer" onSubmit={send}>
@@ -229,6 +285,12 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
           </div>
         ) : null}
 
+        {voiceStatusLabel ? (
+          <div className="composer-feedback" role="status" aria-live="polite">
+            <span>{voiceStatusLabel}</span>
+          </div>
+        ) : null}
+
         <div className="composer-row">
           <label className="attach-btn" htmlFor="file-input" title="Adjuntar archivo" aria-label="Adjuntar archivo">
             +
@@ -261,12 +323,20 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
               onPointerUp={handleMicPointerUp}
               onPointerCancel={handleMicCancel}
               onPointerLeave={handleMicCancel}
-              onClick={(e) => e.preventDefault()}
-              aria-label={isRecording ? "Stop recording" : "Start voice dictation"}
-              title={selectedFile ? "Quita el archivo adjunto para dictar" : "Manten apretado para dictar"}
-              disabled={sending || isOffline || isProcessing || Boolean(selectedFile)}
+              onClick={voiceMode === "toggle" ? handleToggleClick : (e) => e.preventDefault()}
+              aria-label={isRecording || isStarting ? "Stop recording" : "Start voice dictation"}
+              title={
+                selectedFile
+                  ? "Quita el archivo adjunto para dictar"
+                  : voiceMode === "hold"
+                  ? "Manten apretado para dictar"
+                  : isRecording || isStarting
+                  ? "Toca para detener"
+                  : "Toca para iniciar dictado"
+              }
+              disabled={sending || isOffline || Boolean(selectedFile)}
             >
-              {isProcessing ? (
+              {isProcessing || isStarting ? (
                 <span className="mic-spinner" aria-hidden="true" />
               ) : isRecording ? (
                 <span className="record-indicator" aria-hidden="true" />
@@ -276,14 +346,15 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
             </button>
           ) : null}
 
-          {isSupported && (isRecording || isProcessing) ? (
+          {isSupported && (isStarting || isRecording || isProcessing) ? (
             <button
               type="button"
               className="dictation-cancel-btn"
               onClick={() => {
                 shouldAutoSendRef.current = false;
-                stopRecording();
-                setText(dictationBase);
+                micPressedRef.current = false;
+                cancelRecording();
+                setText(dictationBaseRef.current);
               }}
             >
               Cancelar
@@ -300,3 +371,4 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
 );
 
 Composer.displayName = "Composer";
+
