@@ -10,6 +10,7 @@ interface Props {
   onCopy: (text: string) => void;
   onDelete: (message: Message) => void;
   onToggleStar: (message: Message) => void;
+  onReply: (message: Message) => void;
   onLoadMore: () => void;
   loadingMore: boolean;
   hasMore: boolean;
@@ -32,6 +33,7 @@ export const MessageList = ({
   onCopy,
   onDelete,
   onToggleStar,
+  onReply,
   onLoadMore,
   loadingMore,
   hasMore,
@@ -51,6 +53,18 @@ export const MessageList = ({
       ),
     [messages, normalizedSearch]
   );
+
+  const scrollToMessage = (messageId: string) => {
+    const index = filtered.findIndex((msg) => msg.id === messageId);
+    if (index === -1) return;
+
+    listRef.current?.scrollToIndex({ index, align: "center", behavior: "smooth" });
+
+    window.setTimeout(() => {
+      const target = document.getElementById(`message-${messageId}`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+  };
 
   useEffect(() => {
     const hasNewMessages = filtered.length > previousCount.current;
@@ -73,8 +87,8 @@ export const MessageList = ({
   if (!filtered.length && Object.keys(uploadsProgress).length === 0) {
     return (
       <div className="empty-state">
-        {search ? "Sin resultados en mensajes cargados." : "No hay mensajes. Escribí tu primera nota."}
-        {search && hasMore ? <p className="empty-suggestion">Probá cargar mensajes anteriores.</p> : null}
+        {search ? "Sin resultados en mensajes cargados." : "No hay mensajes. Escribi tu primera nota."}
+        {search && hasMore ? <p className="empty-suggestion">Proba cargar mensajes anteriores.</p> : null}
       </div>
     );
   }
@@ -110,7 +124,7 @@ export const MessageList = ({
             </>
           )
         }}
-        itemContent={(index, message) => {
+        itemContent={(index: number, message: Message) => {
           const previous = index > 0 ? filtered[index - 1] : null;
           const currentDate = dateLabel(message.createdAt?.seconds);
           const previousDate = previous ? dateLabel(previous.createdAt?.seconds) : null;
@@ -119,7 +133,14 @@ export const MessageList = ({
           return (
             <div className="message-virtual-item">
               {showDate ? <p className="date-chip">{currentDate}</p> : null}
-              <MessageBubble message={message} onCopy={onCopy} onDelete={onDelete} onToggleStar={onToggleStar} />
+              <MessageBubble
+                message={message}
+                onCopy={onCopy}
+                onDelete={onDelete}
+                onToggleStar={onToggleStar}
+                onReply={onReply}
+                onNavigateToMessage={scrollToMessage}
+              />
             </div>
           );
         }}

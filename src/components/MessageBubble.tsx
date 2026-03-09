@@ -1,7 +1,9 @@
-﻿import { memo, useMemo, useState, type MouseEvent, type TouchEvent } from "react";
+import { memo, useMemo, useState, type MouseEvent, type TouchEvent } from "react";
 import { Message } from "../lib/types";
 import { MessageContextMenu } from "../features/message-actions/MessageContextMenu";
 import { MessageContent } from "../features/message-renderers/MessageContent";
+import { MessageActions } from "./MessageActions";
+import { MessageReplyQuote } from "./MessageReplyQuote";
 
 const formatHour = (seconds: number | undefined) => {
   if (!seconds) return "";
@@ -16,9 +18,11 @@ interface Props {
   onCopy: (text: string) => void;
   onDelete: (message: Message) => void;
   onToggleStar: (message: Message) => void;
+  onReply: (message: Message) => void;
+  onNavigateToMessage: (messageId: string) => void;
 }
 
-const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar }: Props) => {
+const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar, onReply, onNavigateToMessage }: Props) => {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const time = formatHour(message.createdAt?.seconds);
@@ -58,18 +62,34 @@ const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar }: Props) =
   const messageTypeClass = useMemo(() => `bubble bubble-${message.type}`, [message.type]);
 
   return (
-    <article className={messageTypeClass} onContextMenu={onContextMenu} onTouchStart={onTouchStart}>
-      <MessageContent message={message} />
+    <article
+      id={`message-${message.id}`}
+      className={messageTypeClass}
+      onContextMenu={onContextMenu}
+      onTouchStart={onTouchStart}
+    >
+      {message.replyToId && message.replyToAuthor && message.replyToText ? (
+        <MessageReplyQuote
+          author={message.replyToAuthor}
+          text={message.replyToText}
+          onClick={() => message.replyToId && onNavigateToMessage(message.replyToId)}
+        />
+      ) : null}
+
+      <div className="bubble-content-wrapper">
+        <MessageContent message={message} />
+        {message.text && (
+          <MessageActions
+            text={message.text}
+            onReply={() => onReply(message)}
+          />
+        )}
+      </div>
 
       <footer className="bubble-meta">
-        {message.starred ? <span className="star">★</span> : null}
-        <span>{message.device === "mobile" ? "Móvil" : "PC"}</span>
+        {message.starred ? <span className="star">*</span> : null}
+        <span>{message.device === "mobile" ? "Movil" : "PC"}</span>
         <span>{time}</span>
-        {canCopy ? (
-          <button type="button" className="ghost-btn" onClick={() => onCopy(message.text)}>
-            Copiar
-          </button>
-        ) : null}
       </footer>
 
       {menuPos ? (

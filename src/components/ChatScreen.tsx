@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { User } from "firebase/auth";
 import { logout } from "../lib/auth";
 import { Composer } from "./Composer";
 import { ChatHeader } from "./ChatHeader";
 import { MessageList } from "./MessageList";
 import { useMessages } from "../hooks/useMessages";
-import { Message } from "../lib/types";
+import { Message, ReplyTarget } from "../lib/types";
 import { applyTheme, getInitialTheme, ThemeMode } from "../features/theme/useTheme";
 
 interface Props {
@@ -15,6 +15,9 @@ interface Props {
 }
 
 export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Props) => {
+  const composerRef = useRef<HTMLInputElement>(null);
+  const authorName = user.displayName?.trim() || user.email || "Anonimo";
+
   const {
     messages,
     loading,
@@ -34,11 +37,12 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
     deleteMessage,
     fromCache,
     hasPendingWrites
-  } = useMessages(user.uid);
+  } = useMessages(user.uid, authorName);
 
   const [search, setSearch] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [replyToMessage, setReplyToMessage] = useState<ReplyTarget | null>(null);
 
   useEffect(() => {
     applyTheme(theme);
@@ -68,6 +72,18 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
   const handleToggleStar = useCallback((message: Message) => toggleStar(message.id, message.starred), [toggleStar]);
   const handleDelete = useCallback((message: Message) => deleteMessage(message), [deleteMessage]);
 
+  const handleReply = useCallback((message: Message) => {
+    setReplyToMessage({
+      id: message.id,
+      text: message.text,
+      author: message.author
+    });
+
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+    });
+  }, []);
+
   const syncLabel = hasPendingWrites ? "Sincronizando cambios..." : fromCache ? "Mostrando datos cacheados" : "";
 
   return (
@@ -81,7 +97,7 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
         onToggleTheme={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
       />
 
-      {isOffline ? <div className="status-banner">Sin conexión. Revisá tu red para sincronizar.</div> : null}
+      {isOffline ? <div className="status-banner">Sin conexion. Revisa tu red para sincronizar.</div> : null}
       {!isOffline && syncLabel ? <div className="status-banner">{syncLabel}</div> : null}
 
       {error ? (
@@ -97,6 +113,7 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
         onCopy={copyToClipboard}
         onDelete={handleDelete}
         onToggleStar={handleToggleStar}
+        onReply={handleReply}
         onLoadMore={loadMore}
         loadingMore={loadingMore}
         hasMore={hasMore}
@@ -104,6 +121,7 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
       />
 
       <Composer
+        ref={composerRef}
         onSendText={sendText}
         onSendFile={sendFile}
         onRetrySend={retryLastFailedSend}
@@ -116,10 +134,9 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
           onClearPendingDropFile();
         }}
         isOffline={isOffline}
+        replyToMessage={replyToMessage}
+        onClearReplyToMessage={() => setReplyToMessage(null)}
       />
     </main>
   );
 };
-
-
-

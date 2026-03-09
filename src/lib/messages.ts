@@ -18,7 +18,7 @@ import {
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { db, storage } from "./firebase";
 import { appPath } from "./paths";
-import { DeviceType, Message, MessageType } from "./types";
+import { DeviceType, Message, MessageType, ReplyTarget } from "./types";
 
 const PAGE_SIZE_MOBILE = 30;
 const PAGE_SIZE_DESKTOP = 60;
@@ -48,6 +48,12 @@ const toEpoch = (message: Message) => {
   return seconds * 1_000_000_000 + nanos;
 };
 
+const mapReply = (data: DocumentData) => ({
+  replyToId: typeof data.replyToId === "string" ? data.replyToId : null,
+  replyToText: typeof data.replyToText === "string" ? data.replyToText : null,
+  replyToAuthor: typeof data.replyToAuthor === "string" ? data.replyToAuthor : null
+});
+
 const mapMessage = (docSnap: QueryDocumentSnapshot<DocumentData>): Message => {
   const data = docSnap.data();
   const type = (data.type as MessageType) ?? "text";
@@ -56,7 +62,9 @@ const mapMessage = (docSnap: QueryDocumentSnapshot<DocumentData>): Message => {
     id: docSnap.id,
     createdAt: data.createdAt ?? null,
     device: (data.device as DeviceType) ?? "desktop",
-    starred: Boolean(data.starred)
+    starred: Boolean(data.starred),
+    author: typeof data.author === "string" ? data.author : "Anonimo",
+    ...mapReply(data)
   };
 
   if (type === "image" || type === "video" || type === "file") {
@@ -88,17 +96,17 @@ const normalizeText = (value: string) => value.trim();
 
 const validateTextLength = (value: string, label: string) => {
   if (value.length > MAX_TEXT_LENGTH) {
-    throw new Error(`${label} supera el máximo de ${MAX_TEXT_LENGTH} caracteres.`);
+    throw new Error(`${label} supera el maximo de ${MAX_TEXT_LENGTH} caracteres.`);
   }
 };
 
 const validateFile = (file: File) => {
   if (!file.size) {
-    throw new Error("El archivo está vacío.");
+    throw new Error("El archivo esta vacio.");
   }
 
   if (file.size > MAX_FILE_BYTES) {
-    throw new Error("El archivo supera el límite de 20 MB.");
+    throw new Error("El archivo supera el limite de 20 MB.");
   }
 
   if (file.name.length > MAX_FILE_NAME_LENGTH) {
@@ -119,7 +127,17 @@ const validateFile = (file: File) => {
   }
 };
 
-const buildTextPayload = (value: string) => {
+const mapReplyPayload = (replyTo?: ReplyTarget | null) => {
+  if (!replyTo) return {};
+
+  return {
+    replyToId: replyTo.id,
+    replyToText: replyTo.text,
+    replyToAuthor: replyTo.author
+  };
+};
+
+const buildTextPayload = (value: string, author: string, replyTo?: ReplyTarget | null) => {
   const text = normalizeText(value);
   if (!text) return null;
 
@@ -135,11 +153,21 @@ const buildTextPayload = (value: string) => {
     createdAt: serverTimestamp(),
     device: deviceType(),
     size: null,
-    starred: false
+    starred: false,
+    author,
+    ...mapReplyPayload(replyTo)
   };
 };
 
-const buildFilePayload = (type: MessageType, url: string, storagePath: string, file: File, caption: string) => {
+const buildFilePayload = (
+  type: MessageType,
+  url: string,
+  storagePath: string,
+  file: File,
+  caption: string,
+  author: string,
+  replyTo?: ReplyTarget | null
+) => {
   const normalizedCaption = normalizeText(caption);
   validateTextLength(normalizedCaption, "El texto adjunto");
 
@@ -153,7 +181,9 @@ const buildFilePayload = (type: MessageType, url: string, storagePath: string, f
     createdAt: serverTimestamp(),
     device: deviceType(),
     size: file.size,
-    starred: false
+    starred: false,
+    author,
+    ...mapReplyPayload(replyTo)
   };
 };
 
@@ -227,8 +257,8 @@ export const applyMessageChanges = (current: Message[], changes: DocumentChange<
   return [...nextById.values()].sort((a, b) => toEpoch(a) - toEpoch(b));
 };
 
-export const sendTextMessage = async (uid: string, value: string) => {
-  const payload = buildTextPayload(value);
+export const sendTextMessage = async (uid: string, value: string, author: string, replyTo?: ReplyTarget | null) => {
+  const payload = buildTextPayload(value, author, replyTo);
   if (!payload) return;
 
   const msgRef = doc(messagesCollection(uid));
@@ -239,6 +269,8 @@ export const sendFileMessageWithProgress = async (
   uid: string,
   file: File,
   caption = "",
+  author: string,
+  replyTo?: ReplyTarget | null,
   onProgress?: (value: number) => void
 ) => {
   validateFile(file);
@@ -263,7 +295,7 @@ export const sendFileMessageWithProgress = async (
 
   const url = await getDownloadURL(storageRef);
   const type: MessageType = isImage(file) ? "image" : isVideo(file) ? "video" : "file";
-  const payload = buildFilePayload(type, url, storagePath, file, caption);
+  const payload = buildFilePayload(type, url, storagePath, file, caption, author, replyTo);
 
   await setDoc(msgRef, payload);
 };

@@ -9,14 +9,14 @@ import {
   subscribeToLatestMessages,
   toggleMessageStar
 } from "../lib/messages";
-import { Message } from "../lib/types";
+import { Message, ReplyTarget } from "../lib/types";
 import { buildUploadId } from "../features/uploads/uploadProgress";
 
 type FailedSend =
-  | { kind: "text"; text: string }
-  | { kind: "file"; file: File; caption: string };
+  | { kind: "text"; text: string; replyTo: ReplyTarget | null }
+  | { kind: "file"; file: File; caption: string; replyTo: ReplyTarget | null };
 
-export const useMessages = (uid: string | null) => {
+export const useMessages = (uid: string | null, author: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,8 +63,8 @@ export const useMessages = (uid: string | null) => {
         if (payload.changes.length > 0) {
           setMessages((prev) => applyMessageChanges(prev, payload.changes));
         } else if (payload.messages.length > 0) {
-          // RecuperaciÃ³n: si el primer snapshot fue vacÃ­o (cache) y el actual trae mensajes
-          // pero docChanges() viene vacÃ­o, no nos quedamos con [].
+          // Recuperación: si el primer snapshot fue vacío (cache) y el actual trae mensajes
+          // pero docChanges() viene vacío, no nos quedamos con [].
           setMessages((prev) => (prev.length === 0 ? payload.messages : prev));
           setReachedEnd(payload.messages.length < payload.pageSize);
         }
@@ -83,31 +83,31 @@ export const useMessages = (uid: string | null) => {
   }, [uid]);
 
   const sendText = useCallback(
-    async (text: string) => {
+    async (text: string, replyTo: ReplyTarget | null = null) => {
       if (!uid) return false;
 
       setSending(true);
       setSendError(null);
 
       try {
-        await sendTextMessage(uid, text);
+        await sendTextMessage(uid, text, author, replyTo);
         setLastFailedSend(null);
         return true;
       } catch (sendTextError) {
         const message = sendTextError instanceof Error ? sendTextError.message : "No se pudo enviar el mensaje.";
         setError(message);
         setSendError(message);
-        setLastFailedSend({ kind: "text", text });
+        setLastFailedSend({ kind: "text", text, replyTo });
         return false;
       } finally {
         setSending(false);
       }
     },
-    [uid]
+    [author, uid]
   );
 
   const sendFile = useCallback(
-    async (file: File, caption = "") => {
+    async (file: File, caption = "", replyTo: ReplyTarget | null = null) => {
       if (!uid) return false;
 
       const uploadId = buildUploadId();
@@ -119,7 +119,7 @@ export const useMessages = (uid: string | null) => {
       }));
 
       try {
-        await sendFileMessageWithProgress(uid, file, caption, (value) => {
+        await sendFileMessageWithProgress(uid, file, caption, author, replyTo, (value) => {
           setUploadsProgress((prev) => ({
             ...prev,
             [uploadId]: { name: file.name, progress: value }
@@ -131,7 +131,7 @@ export const useMessages = (uid: string | null) => {
         const message = sendFileError instanceof Error ? sendFileError.message : "No se pudo enviar el archivo.";
         setError(message);
         setSendError(message);
-        setLastFailedSend({ kind: "file", file, caption });
+        setLastFailedSend({ kind: "file", file, caption, replyTo });
         return false;
       } finally {
         setSending(false);
@@ -142,17 +142,17 @@ export const useMessages = (uid: string | null) => {
         });
       }
     },
-    [uid]
+    [author, uid]
   );
 
   const retryLastFailedSend = useCallback(async () => {
     if (!lastFailedSend || sending) return false;
 
     if (lastFailedSend.kind === "text") {
-      return sendText(lastFailedSend.text);
+      return sendText(lastFailedSend.text, lastFailedSend.replyTo);
     }
 
-    return sendFile(lastFailedSend.file, lastFailedSend.caption);
+    return sendFile(lastFailedSend.file, lastFailedSend.caption, lastFailedSend.replyTo);
   }, [lastFailedSend, sendFile, sendText, sending]);
 
   const loadMore = async () => {
@@ -231,4 +231,3 @@ export const useMessages = (uid: string | null) => {
     clearSendError
   };
 };
-
