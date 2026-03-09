@@ -40,7 +40,7 @@ export const completeRedirectSignIn = async () => {
 export const loginWithGoogle = async () => {
   googleProvider.setCustomParameters({ prompt: "select_account" });
   
-  // Use redirect for mobile, popup for desktop
+  // Use redirect for mobile, popup for desktop.
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   
   if (isMobile) {
