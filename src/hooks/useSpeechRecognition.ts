@@ -51,7 +51,6 @@ export const useSpeechRecognition = () => {
   const isSupported = typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const silenceTimeoutRef = useRef<number | null>(null);
-  const transcriptRef = useRef("");
 
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -59,7 +58,7 @@ export const useSpeechRecognition = () => {
   const [error, setError] = useState<string | null>(null);
 
   const clearSilenceTimeout = useCallback(() => {
-    if (silenceTimeoutRef.current) {
+    if (silenceTimeoutRef.current !== null) {
       window.clearTimeout(silenceTimeoutRef.current);
       silenceTimeoutRef.current = null;
     }
@@ -91,17 +90,14 @@ export const useSpeechRecognition = () => {
     };
 
     recognition.onresult = (event) => {
-      let nextTranscript = "";
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const piece = event.results[i]?.[0]?.transcript ?? "";
-        nextTranscript += piece;
+      let combined = "";
+
+      for (let i = 0; i < event.results.length; i += 1) {
+        combined += event.results[i]?.[0]?.transcript ?? "";
       }
 
-      transcriptRef.current = nextTranscript.trim();
-      setTranscript(transcriptRef.current);
-      if (transcriptRef.current) {
-        setIsProcessing(false);
-      }
+      setTranscript(combined.trim());
+      setIsProcessing(false);
       scheduleAutoStop();
     };
 
@@ -135,7 +131,6 @@ export const useSpeechRecognition = () => {
 
     setError(null);
     setTranscript("");
-    transcriptRef.current = "";
     setIsProcessing(false);
 
     try {
@@ -146,10 +141,10 @@ export const useSpeechRecognition = () => {
   }, [isRecording, isSupported]);
 
   const stopRecording = useCallback(() => {
-    if (!recognitionRef.current) return;
+    if (!recognitionRef.current || !isRecording) return;
     setIsProcessing(true);
     recognitionRef.current.stop();
-  }, []);
+  }, [isRecording]);
 
   return {
     startRecording,

@@ -3,6 +3,7 @@ import {
   ClipboardEvent,
   FormEvent,
   KeyboardEvent,
+  PointerEvent,
   forwardRef,
   useEffect,
   useImperativeHandle,
@@ -27,8 +28,6 @@ interface Props {
   onClearReplyToMessage: () => void;
 }
 
-type DictationTarget = "text" | "caption";
-
 export const Composer = forwardRef<HTMLTextAreaElement, Props>(
   (
     {
@@ -49,13 +48,11 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
     const [text, setText] = useState("");
     const [caption, setCaption] = useState("");
     const [pickedFile, setPickedFile] = useState<File | null>(null);
-    const [dictationSession, setDictationSession] = useState<{
-      active: boolean;
-      target: DictationTarget | null;
-      base: string;
-    }>({ active: false, target: null, base: "" });
+
+    const [dictationBase, setDictationBase] = useState("");
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const shouldAutoSendRef = useRef(false);
 
     const { startRecording, stopRecording, isRecording, isProcessing, transcript, error: speechError, isSupported } = useSpeechRecognition();
 
@@ -79,21 +76,26 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
     }, [caption, text, selectedFile]);
 
     useEffect(() => {
-      if (!dictationSession.active || !dictationSession.target) return;
-
-      const nextValue = `${dictationSession.base}${dictationSession.base && transcript ? " " : ""}${transcript}`.trim();
-      if (dictationSession.target === "caption") {
-        setCaption(nextValue);
-      } else {
-        setText(nextValue);
-      }
-    }, [dictationSession, transcript]);
+      if (!isRecording && !isProcessing) return;
+      const nextText = `${dictationBase}${dictationBase && transcript ? " " : ""}${transcript}`.trim();
+      setText(nextText);
+    }, [dictationBase, transcript, isRecording, isProcessing]);
 
     useEffect(() => {
-      if (dictationSession.active && !isRecording && !isProcessing) {
-        setDictationSession({ active: false, target: null, base: "" });
-      }
-    }, [dictationSession.active, isRecording, isProcessing]);
+      if (!shouldAutoSendRef.current) return;
+      if (isRecording || isProcessing) return;
+
+      shouldAutoSendRef.current = false;
+      const dictated = text.trim();
+      if (!dictated) return;
+
+      void (async () => {
+        const sent = await onSendText(dictated, replyToMessage);
+        if (!sent) return;
+        setText("");
+        onClearReplyToMessage();
+      })();
+    }, [isRecording, isProcessing, onClearReplyToMessage, onSendText, replyToMessage, text]);
 
     const onPickFile = (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
@@ -152,30 +154,37 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
       }
     };
 
-    const handleStartDictation = () => {
-      onClearSendError();
-      const target: DictationTarget = selectedFile ? "caption" : "text";
-      const base = target === "caption" ? caption.trim() : text.trim();
+    const handleMicPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+      if (sending || isOffline || isProcessing || selectedFile) return;
 
-      setDictationSession({ active: true, target, base });
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      onClearSendError();
+      shouldAutoSendRef.current = false;
+      setDictationBase(text.trim());
       startRecording();
     };
 
-    const handleStopDictation = () => {
+    const handleMicPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
+      if (!isRecording) return;
+
+      event.preventDefault();
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+
+      shouldAutoSendRef.current = true;
       stopRecording();
     };
 
-    const handleCancelDictation = () => {
-      if (dictationSession.target === "caption") {
-        setCaption(dictationSession.base);
+    const handleMicCancel = (event: PointerEvent<HTMLButtonElement>) => {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
-      if (dictationSession.target === "text") {
-        setText(dictationSession.base);
-      }
-
-      setDictationSession({ active: false, target: null, base: "" });
+      shouldAutoSendRef.current = false;
       stopRecording();
+      setText(dictationBase);
     };
 
     return (
@@ -248,10 +257,14 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
             <button
               type="button"
               className={`mic-btn ${isRecording ? "mic-btn-recording" : ""}`}
-              onClick={isRecording ? handleStopDictation : handleStartDictation}
+              onPointerDown={handleMicPointerDown}
+              onPointerUp={handleMicPointerUp}
+              onPointerCancel={handleMicCancel}
+              onPointerLeave={handleMicCancel}
+              onClick={(e) => e.preventDefault()}
               aria-label={isRecording ? "Stop recording" : "Start voice dictation"}
-              title={isRecording ? "Detener dictado" : "Dictado por voz"}
-              disabled={sending || isProcessing}
+              title={selectedFile ? "Quita el archivo adjunto para dictar" : "Manten apretado para dictar"}
+              disabled={sending || isOffline || isProcessing || Boolean(selectedFile)}
             >
               {isProcessing ? (
                 <span className="mic-spinner" aria-hidden="true" />
@@ -264,7 +277,15 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
           ) : null}
 
           {isSupported && (isRecording || isProcessing) ? (
-            <button type="button" className="dictation-cancel-btn" onClick={handleCancelDictation}>
+            <button
+              type="button"
+              className="dictation-cancel-btn"
+              onClick={() => {
+                shouldAutoSendRef.current = false;
+                stopRecording();
+                setText(dictationBase);
+              }}
+            >
               Cancelar
             </button>
           ) : null}
