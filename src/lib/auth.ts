@@ -1,10 +1,10 @@
-﻿import {
+import {
   User,
   createUserWithEmailAndPassword,
   getRedirectResult,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signInWithRedirect,
+  signInWithPopup,
   signOut
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -38,7 +38,8 @@ export const completeRedirectSignIn = async () => {
 
 export const loginWithGoogle = async () => {
   googleProvider.setCustomParameters({ prompt: "select_account" });
-  await signInWithRedirect(auth, googleProvider);
+  const result = await signInWithPopup(auth, googleProvider);
+  await ensureUserProfile(result.user);
 };
 
 export const loginWithEmail = async (email: string, password: string) => {

@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #f4f6fb;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
@@ -215,10 +215,17 @@ h1 {
 
 .message-list {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 0.8rem;
-  display: grid;
-  gap: 0.5rem;
+}
+
+.message-list > div {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .date-chip {
@@ -508,6 +515,15 @@ h1 {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Virtuoso necesita un contenedor con altura definida; en flex el hijo con flex:1 la obtiene */
+.message-list > div {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .message-virtual-item {
@@ -538,6 +554,7 @@ h1 {
   font-size: 0.82rem;
 }
 .message-list {
-  display: block;
+  display: flex;
+  flex-direction: column;
   padding: 0;
 }

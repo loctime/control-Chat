@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type DocumentData, type QueryDocumentSnapshot } from "firebase/firestore";
 import {
   applyMessageChanges,
@@ -62,6 +62,11 @@ export const useMessages = (uid: string | null) => {
 
         if (payload.changes.length > 0) {
           setMessages((prev) => applyMessageChanges(prev, payload.changes));
+        } else if (payload.messages.length > 0) {
+          // Recuperación: si el primer snapshot fue vacío (cache) y el actual trae mensajes
+          // pero docChanges() viene vacío, no nos quedamos con [].
+          setMessages((prev) => (prev.length === 0 ? payload.messages : prev));
+          setReachedEnd(payload.messages.length < payload.pageSize);
         }
 
         setLoading(false);

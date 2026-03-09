@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { User } from "firebase/auth";
 import { logout } from "../lib/auth";
 import { Composer } from "./Composer";
