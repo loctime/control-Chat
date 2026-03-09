@@ -11,6 +11,7 @@ import {
 } from "react";
 import { ReplyPreview } from "./ReplyPreview";
 import { ReplyTarget } from "../lib/types";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 interface Props {
   onSendText: (text: string, replyTo: ReplyTarget | null) => Promise<boolean>;
@@ -25,6 +26,8 @@ interface Props {
   replyToMessage: ReplyTarget | null;
   onClearReplyToMessage: () => void;
 }
+
+type DictationTarget = "text" | "caption";
 
 export const Composer = forwardRef<HTMLTextAreaElement, Props>(
   (
@@ -46,7 +49,15 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
     const [text, setText] = useState("");
     const [caption, setCaption] = useState("");
     const [pickedFile, setPickedFile] = useState<File | null>(null);
+    const [dictationSession, setDictationSession] = useState<{
+      active: boolean;
+      target: DictationTarget | null;
+      base: string;
+    }>({ active: false, target: null, base: "" });
+
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const { startRecording, stopRecording, isRecording, isProcessing, transcript, error: speechError, isSupported } = useSpeechRecognition();
 
     const selectedFile = pendingFile ?? pickedFile;
 
@@ -66,6 +77,23 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
       input.style.height = "0px";
       input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
     }, [caption, text, selectedFile]);
+
+    useEffect(() => {
+      if (!dictationSession.active || !dictationSession.target) return;
+
+      const nextValue = `${dictationSession.base}${dictationSession.base && transcript ? " " : ""}${transcript}`.trim();
+      if (dictationSession.target === "caption") {
+        setCaption(nextValue);
+      } else {
+        setText(nextValue);
+      }
+    }, [dictationSession, transcript]);
+
+    useEffect(() => {
+      if (dictationSession.active && !isRecording && !isProcessing) {
+        setDictationSession({ active: false, target: null, base: "" });
+      }
+    }, [dictationSession.active, isRecording, isProcessing]);
 
     const onPickFile = (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
@@ -124,6 +152,32 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
       }
     };
 
+    const handleStartDictation = () => {
+      onClearSendError();
+      const target: DictationTarget = selectedFile ? "caption" : "text";
+      const base = target === "caption" ? caption.trim() : text.trim();
+
+      setDictationSession({ active: true, target, base });
+      startRecording();
+    };
+
+    const handleStopDictation = () => {
+      stopRecording();
+    };
+
+    const handleCancelDictation = () => {
+      if (dictationSession.target === "caption") {
+        setCaption(dictationSession.base);
+      }
+
+      if (dictationSession.target === "text") {
+        setText(dictationSession.base);
+      }
+
+      setDictationSession({ active: false, target: null, base: "" });
+      stopRecording();
+    };
+
     return (
       <form className="composer" onSubmit={send}>
         {replyToMessage ? (
@@ -160,6 +214,12 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
           </div>
         ) : null}
 
+        {speechError ? (
+          <div className="composer-feedback" role="status" aria-live="polite">
+            <span>{speechError}</span>
+          </div>
+        ) : null}
+
         <div className="composer-row">
           <label className="attach-btn" htmlFor="file-input" title="Adjuntar archivo" aria-label="Adjuntar archivo">
             +
@@ -183,6 +243,31 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
               }
             }}
           />
+
+          {isSupported ? (
+            <button
+              type="button"
+              className={`mic-btn ${isRecording ? "mic-btn-recording" : ""}`}
+              onClick={isRecording ? handleStopDictation : handleStartDictation}
+              aria-label={isRecording ? "Stop recording" : "Start voice dictation"}
+              title={isRecording ? "Detener dictado" : "Dictado por voz"}
+              disabled={sending || isProcessing}
+            >
+              {isProcessing ? (
+                <span className="mic-spinner" aria-hidden="true" />
+              ) : isRecording ? (
+                <span className="record-indicator" aria-hidden="true" />
+              ) : (
+                "\uD83C\uDFA4"
+              )}
+            </button>
+          ) : null}
+
+          {isSupported && (isRecording || isProcessing) ? (
+            <button type="button" className="dictation-cancel-btn" onClick={handleCancelDictation}>
+              Cancelar
+            </button>
+          ) : null}
 
           <button className="send-btn" type="submit" disabled={sending || isOffline}>
             {isOffline ? "Offline" : sending ? "Enviando" : "Enviar"}

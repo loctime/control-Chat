@@ -373,7 +373,7 @@ h1 {
 
 .composer-row {
   display: grid;
-  grid-template-columns: 42px 1fr auto;
+  grid-template-columns: 42px 1fr 42px auto auto;
   gap: 0.45rem;
   align-items: center;
 }
@@ -398,6 +398,67 @@ h1 {
   padding: 0 0.8rem;
   background: var(--surface-elevated);
   color: var(--text);
+}
+
+.mic-btn {
+  min-height: 42px;
+  min-width: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-elevated);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.mic-btn-recording {
+  border-color: #ef4444;
+  background: color-mix(in srgb, #ef4444 12%, var(--surface-elevated));
+}
+
+.record-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ef4444;
+  animation: recordPulse 900ms ease-in-out infinite;
+}
+
+@keyframes recordPulse {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+.mic-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  border-top-color: var(--text);
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dictation-cancel-btn {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 0.65rem;
+  cursor: pointer;
 }
 
 .send-btn {
@@ -794,4 +855,15 @@ textarea {
 
 .message-list {
   position: relative;
+}
+
+@media (max-width: 640px) {
+  .composer-row {
+    grid-template-columns: 38px 1fr 38px auto;
+  }
+
+  .dictation-cancel-btn {
+    grid-column: 2 / -1;
+    min-height: 36px;
+  }
 }
