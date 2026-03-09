@@ -1,0 +1,81 @@
+﻿rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function validCommonMessageFields(data) {
+      return data.keys().hasOnly([
+          'type',
+          'text',
+          'fileURL',
+          'fileName',
+          'fileType',
+          'storagePath',
+          'createdAt',
+          'device',
+          'size',
+          'starred'
+        ])
+        && data.type in ['text', 'link', 'image', 'video', 'file']
+        && data.device in ['mobile', 'desktop']
+        && data.starred is bool
+        && data.createdAt is timestamp
+        && data.text is string;
+    }
+
+    function validTextLikeMessage(data) {
+      return data.type in ['text', 'link']
+        && data.fileURL == null
+        && data.fileName == null
+        && data.fileType == null
+        && data.storagePath == null
+        && data.size == null
+        && data.text.size() > 0
+        && data.text.size() <= 2000
+        && (data.type != 'link' || data.text.matches('^https?://.+'));
+    }
+
+    function validFileLikeMessage(data) {
+      return data.type in ['image', 'video', 'file']
+        && data.fileURL is string
+        && data.fileURL.size() > 0
+        && data.fileName is string
+        && data.fileName.size() > 0
+        && (data.fileType == null || data.fileType is string)
+        && data.storagePath is string
+        && data.storagePath.size() > 0
+        && (data.size is int || data.size is float)
+        && data.size > 0
+        && data.text.size() <= 2000;
+    }
+
+    function validCreateMessage(data) {
+      return validCommonMessageFields(data) && (validTextLikeMessage(data) || validFileLikeMessage(data));
+    }
+
+    match /apps/control-chat/users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && validCreateMessage(request.resource.data);
+
+        allow update: if isOwner(userId)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['starred'])
+          && request.resource.data.starred is bool;
+
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}

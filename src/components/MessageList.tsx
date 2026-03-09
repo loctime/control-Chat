@@ -1,0 +1,129 @@
+﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { Message } from "../lib/types";
+import { MessageBubble } from "./MessageBubble";
+
+interface Props {
+  messages: Message[];
+  search: string;
+  loading: boolean;
+  onCopy: (text: string) => void;
+  onDelete: (message: Message) => void;
+  onToggleStar: (message: Message) => void;
+  onLoadMore: () => void;
+  loadingMore: boolean;
+  hasMore: boolean;
+  uploadsProgress: Record<string, { name: string; progress: number }>;
+}
+
+const dateLabel = (seconds: number | undefined) => {
+  if (!seconds) return "Ahora";
+  return new Date(seconds * 1000).toLocaleDateString("es-AR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short"
+  });
+};
+
+export const MessageList = ({
+  messages,
+  search,
+  loading,
+  onCopy,
+  onDelete,
+  onToggleStar,
+  onLoadMore,
+  loadingMore,
+  hasMore,
+  uploadsProgress
+}: Props) => {
+  const listRef = useRef<VirtuosoHandle | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const previousCount = useRef(0);
+
+  const normalizedSearch = search.toLowerCase();
+  const filtered = useMemo(
+    () =>
+      messages.filter(
+        (msg) =>
+          msg.text.toLowerCase().includes(normalizedSearch) ||
+          (msg.fileName ?? "").toLowerCase().includes(normalizedSearch)
+      ),
+    [messages, normalizedSearch]
+  );
+
+  useEffect(() => {
+    const hasNewMessages = filtered.length > previousCount.current;
+    if (hasNewMessages && isAtBottom) {
+      listRef.current?.scrollToIndex({ index: Math.max(filtered.length - 1, 0), behavior: "smooth" });
+    }
+    previousCount.current = filtered.length;
+  }, [filtered.length, isAtBottom]);
+
+  useEffect(() => {
+    if (isAtBottom && Object.keys(uploadsProgress).length > 0) {
+      listRef.current?.scrollToIndex({ index: Math.max(filtered.length - 1, 0), behavior: "smooth" });
+    }
+  }, [filtered.length, isAtBottom, uploadsProgress]);
+
+  if (loading) {
+    return <div className="empty-state">Cargando mensajes...</div>;
+  }
+
+  if (!filtered.length && Object.keys(uploadsProgress).length === 0) {
+    return (
+      <div className="empty-state">
+        {search ? "Sin resultados en mensajes cargados." : "No hay mensajes. Escribí tu primera nota."}
+        {search && hasMore ? <p className="empty-suggestion">Probá cargar mensajes anteriores.</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="message-list" id="chat-scroll">
+      <Virtuoso
+        ref={listRef}
+        style={{ height: "100%" }}
+        data={filtered}
+        atBottomThreshold={80}
+        atBottomStateChange={setIsAtBottom}
+        components={{
+          Header: () =>
+            hasMore ? (
+              <div className="list-header">
+                <button type="button" className="load-more" onClick={onLoadMore} disabled={loadingMore}>
+                  {loadingMore ? "Cargando..." : "Cargar anteriores"}
+                </button>
+              </div>
+            ) : null,
+          Footer: () => (
+            <>
+              {Object.entries(uploadsProgress).map(([id, item]) => (
+                <div key={id} className="upload-item">
+                  <p>{item.name}</p>
+                  <div className="upload-track">
+                    <span style={{ width: `${item.progress}%` }} />
+                  </div>
+                  <small>{item.progress}%</small>
+                </div>
+              ))}
+            </>
+          )
+        }}
+        itemContent={(index, message) => {
+          const previous = index > 0 ? filtered[index - 1] : null;
+          const currentDate = dateLabel(message.createdAt?.seconds);
+          const previousDate = previous ? dateLabel(previous.createdAt?.seconds) : null;
+          const showDate = currentDate !== previousDate;
+
+          return (
+            <div className="message-virtual-item">
+              {showDate ? <p className="date-chip">{currentDate}</p> : null}
+              <MessageBubble message={message} onCopy={onCopy} onDelete={onDelete} onToggleStar={onToggleStar} />
+            </div>
+          );
+        }}
+      />
+    </div>
+  );
+};
