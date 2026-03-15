@@ -29,12 +29,6 @@ export const useWorkspace = (user: User | null) => {
 
     ensureUserWorkspace(user)
       .then(async ({ workspaceId, conversationId }) => {
-        await migrateLegacyMessagesToConversation(
-          user.uid,
-          workspaceId,
-          conversationId,
-          buildAuthorSnapshot(user)
-        );
         const initial = await getWorkspace(user.uid);
         setWorkspace(initial.workspace);
         setWorkspaceRecord(initial.workspaceRecord);
@@ -50,6 +44,14 @@ export const useWorkspace = (user: User | null) => {
             setError(null);
           },
           (workspaceError) => setError(workspaceError.message)
+        );
+
+        // Run migration in background after UI is ready
+        void migrateLegacyMessagesToConversation(
+          user.uid,
+          workspaceId,
+          conversationId,
+          buildAuthorSnapshot(user)
         );
       })
       .catch((workspaceError) => {

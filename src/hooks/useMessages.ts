@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Timestamp, type DocumentData, type QueryDocumentSnapshot } from "firebase/firestore";
+import { Timestamp, QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
+import { messagesCache } from "./useMessagesCache";
 import {
   applyMessageChanges,
   buildClientId,
@@ -48,7 +49,6 @@ export const useMessages = (
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [oldestDoc, setOldestDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -80,13 +80,21 @@ export const useMessages = (
     if (!workspaceId || !conversationId) return;
 
     initialLoadedRef.current = false;
-    setMessages([]);
-    setLoading(true);
+    
+    // Try to load from cache first
+    const cached = messagesCache.get(workspaceId, conversationId);
+    if (cached) {
+      setMessages(cached.messages);
+      setOldestDoc(cached.oldestDoc);
+      setReachedEnd(cached.reachedEnd);
+      setLoading(false);
+    } else {
+      setMessages([]);
+      setLoading(true);
+    }
+    
     setError(null);
     setSendError(null);
-    setOldestDoc(null);
-    setReachedEnd(false);
-    setFailedSends({});
     setFromCache(false);
     setHasPendingWrites(false);
 
@@ -97,6 +105,13 @@ export const useMessages = (
         setFromCache(payload.fromCache);
         setHasPendingWrites(payload.hasPendingWrites);
         setOldestDoc(payload.lastVisibleDoc);
+
+        // Update cache
+        messagesCache.set(workspaceId, conversationId, {
+          messages: payload.messages,
+          oldestDoc: payload.lastVisibleDoc,
+          reachedEnd: payload.messages.length < payload.pageSize
+        });
 
         if (!initialLoadedRef.current) {
           mergeSnapshotPayload(payload);
@@ -253,24 +268,22 @@ export const useMessages = (
   );
 
   const sendText = useCallback(
-    async (text: string, replyTo: ReplyTarget | null = null, providedMessageId?: string) => {
+    (text: string, replyTo: ReplyTarget | null = null, providedMessageId?: string) => {
       if (!workspaceId || !conversationId) return false;
       const messageId = providedMessageId ?? buildClientId();
 
-      setSending(true);
       setSendError(null);
       insertOptimisticText(messageId, text, replyTo);
 
-      try {
-        await sendTextMessage(workspaceId, conversationId, text, authorId, authorSnapshot, replyTo, messageId);
+      // Background send
+      void sendTextMessage(workspaceId, conversationId, text, authorId, authorSnapshot, replyTo, messageId).then(() => {
         setFailedSends((prev) => {
           const next = { ...prev };
           delete next[messageId];
           return next;
         });
         setLocalStatus(messageId, "sent");
-        return true;
-      } catch (sendTextError) {
+      }).catch((sendTextError) => {
         const message = sendTextError instanceof Error ? sendTextError.message : "No se pudo enviar el mensaje.";
         setError(message);
         setSendError(message);
@@ -279,20 +292,18 @@ export const useMessages = (
           ...prev,
           [messageId]: { kind: "text", messageId, text, replyTo }
         }));
-        return false;
-      } finally {
-        setSending(false);
-      }
+      });
+      
+      return true;
     },
-    [authorId, authorSnapshot, conversationId, insertOptimisticText, setLocalStatus, workspaceId]
+    [workspaceId, conversationId, authorId, authorSnapshot, insertOptimisticText, setLocalStatus]
   );
 
   const sendFile = useCallback(
-    async (file: File, caption = "", replyTo: ReplyTarget | null = null, providedMessageId?: string) => {
+    (file: File, caption = "", replyTo: ReplyTarget | null = null, providedMessageId?: string) => {
       if (!uid || !workspaceId || !conversationId) return false;
       const messageId = providedMessageId ?? buildClientId();
 
-      setSending(true);
       setSendError(null);
       insertOptimisticFile(messageId, file, caption, replyTo);
       setUploadsProgress((prev) => ({
@@ -300,32 +311,36 @@ export const useMessages = (
         [messageId]: { name: file.name, progress: 0 }
       }));
 
-      try {
-        await sendFileMessageWithProgress(
-          workspaceId,
-          conversationId,
-          uid,
-          file,
-          caption,
-          authorId,
-          authorSnapshot,
-          replyTo,
-          (value) => {
-            setUploadsProgress((prev) => ({
-              ...prev,
-              [messageId]: { name: file.name, progress: value }
-            }));
-          },
-          messageId
-        );
+      // Background upload
+      void sendFileMessageWithProgress(
+        workspaceId,
+        conversationId,
+        uid,
+        file,
+        caption,
+        authorId,
+        authorSnapshot,
+        replyTo,
+        (value) => {
+          setUploadsProgress((prev) => ({
+            ...prev,
+            [messageId]: { name: file.name, progress: value }
+          }));
+        },
+        messageId
+      ).then(() => {
         setFailedSends((prev) => {
           const next = { ...prev };
           delete next[messageId];
           return next;
         });
         setLocalStatus(messageId, "sent");
-        return true;
-      } catch (sendFileError) {
+        setUploadsProgress((prev) => {
+          const next = { ...prev };
+          delete next[messageId];
+          return next;
+        });
+      }).catch((sendFileError) => {
         const message = sendFileError instanceof Error ? sendFileError.message : "No se pudo enviar el archivo.";
         setError(message);
         setSendError(message);
@@ -334,27 +349,26 @@ export const useMessages = (
           ...prev,
           [messageId]: { kind: "file", messageId, file, caption, replyTo }
         }));
-        return false;
-      } finally {
-        setSending(false);
         setUploadsProgress((prev) => {
           const next = { ...prev };
           delete next[messageId];
           return next;
         });
-      }
+      });
+      
+      return true;
     },
-    [authorId, authorSnapshot, conversationId, insertOptimisticFile, setLocalStatus, uid, workspaceId]
+    [uid, workspaceId, conversationId, authorId, authorSnapshot, insertOptimisticFile, setLocalStatus]
   );
 
   const retryMessage = useCallback(
-    async (messageId: string) => {
+    (messageId: string) => {
       const failed = failedSends[messageId];
-      if (!failed || sending) return false;
+      if (!failed) return false;
       if (failed.kind === "text") return sendText(failed.text, failed.replyTo, failed.messageId);
       return sendFile(failed.file, failed.caption, failed.replyTo, failed.messageId);
     },
-    [failedSends, sendFile, sendText, sending]
+    [failedSends, sendFile, sendText]
   );
 
   const retryLastFailedSend = useCallback(async () => {
@@ -424,49 +438,103 @@ export const useMessages = (
     [workspaceId, conversationId, oldestDoc, reachedEnd]
   );
 
-  const toggleStar = async (messageId: string, starred: boolean) => {
+  const toggleStar = (messageId: string, starred: boolean) => {
     if (!workspaceId || !conversationId) return;
-    try {
-      await toggleMessageStar(workspaceId, conversationId, messageId, starred);
-    } catch (toggleError) {
+    
+    // Optimistic update
+    setMessages((prev) => prev.map((msg) => 
+      msg.id === messageId ? { ...msg, starred } : msg
+    ));
+    
+    // Background update
+    void toggleMessageStar(workspaceId, conversationId, messageId, starred).catch((toggleError) => {
       setError(toggleError instanceof Error ? toggleError.message : "No se pudo actualizar el favorito.");
-    }
+      // Revert on error
+      setMessages((prev) => prev.map((msg) => 
+        msg.id === messageId ? { ...msg, starred: !starred } : msg
+      ));
+    });
   };
 
-  const editMessage = async (messageId: string, nextText: string) => {
+  const editMessage = (messageId: string, nextText: string) => {
     if (!workspaceId || !conversationId) return false;
-    try {
-      await editMessageText(workspaceId, conversationId, messageId, nextText);
-      return true;
-    } catch (editError) {
+    
+    // Optimistic update
+    setMessages((prev) => prev.map((msg) => 
+      msg.id === messageId ? { ...msg, text: nextText, body: nextText, editedAt: Timestamp.now() } : msg
+    ));
+    
+    // Background update
+    void editMessageText(workspaceId, conversationId, messageId, nextText).catch((editError) => {
       setError(editError instanceof Error ? editError.message : "No se pudo editar el mensaje.");
-      return false;
-    }
+      // Note: We don't revert on edit error as it would be jarring for user experience
+    });
+    
+    return true;
   };
 
-  const toggleReaction = async (messageId: string, emoji: string) => {
+  const toggleReaction = (messageId: string, emoji: string) => {
     if (!workspaceId || !conversationId || !uid) return;
-    try {
-      await toggleMessageReaction(workspaceId, conversationId, messageId, emoji, uid);
-    } catch (reactionError) {
+    
+    // Optimistic update
+    setMessages((prev) => prev.map((msg) => {
+      if (msg.id !== messageId) return msg;
+      
+      const reactions = { ...msg.reactions };
+      const currentUsers = reactions[emoji] || [];
+      const isReacted = currentUsers.includes(uid);
+      
+      if (isReacted) {
+        reactions[emoji] = currentUsers.filter((id) => id !== uid);
+        if (reactions[emoji].length === 0) delete reactions[emoji];
+      } else {
+        reactions[emoji] = [...currentUsers, uid];
+      }
+      
+      return { ...msg, reactions };
+    }));
+    
+    // Background update
+    void toggleMessageReaction(workspaceId, conversationId, messageId, emoji, uid).catch((reactionError) => {
       setError(reactionError instanceof Error ? reactionError.message : "No se pudo reaccionar al mensaje.");
-    }
+      // Revert on error
+      setMessages((prev) => prev.map((msg) => {
+        if (msg.id !== messageId) return msg;
+        
+        const reactions = { ...msg.reactions };
+        const currentUsers = reactions[emoji] || [];
+        const isReacted = currentUsers.includes(uid);
+        
+        if (isReacted) {
+          reactions[emoji] = [...currentUsers, uid];
+        } else {
+          reactions[emoji] = currentUsers.filter((id) => id !== uid);
+          if (reactions[emoji].length === 0) delete reactions[emoji];
+        }
+        
+        return { ...msg, reactions };
+      }));
+    });
   };
 
-  const deleteMessage = async (message: Message) => {
+  const deleteMessage = (message: Message) => {
     if (!workspaceId || !conversationId) return;
-    try {
-      await deleteMessageAndAsset(workspaceId, conversationId, message);
-    } catch (deleteError) {
+    
+    // Optimistic update
+    setMessages((prev) => prev.filter((msg) => msg.id !== message.id));
+    
+    // Background update
+    void deleteMessageAndAsset(workspaceId, conversationId, message).catch((deleteError) => {
       setError(deleteError instanceof Error ? deleteError.message : "No se pudo eliminar el mensaje.");
-    }
+      // Revert on error
+      setMessages((prev) => [...prev, message]);
+    });
   };
 
   return {
     messages,
     loading,
     error,
-    sending,
     sendError,
     hasMore: Boolean(oldestDoc) && !reachedEnd,
     loadingMore,

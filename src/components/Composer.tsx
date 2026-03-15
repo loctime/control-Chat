@@ -15,8 +15,8 @@ import { ReplyTarget } from "../lib/types";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 
 interface Props {
-  onSendText: (text: string, replyTo: ReplyTarget | null) => Promise<boolean>;
-  onSendFile: (file: File, caption?: string, replyTo?: ReplyTarget | null) => Promise<boolean>;
+  onSendText: (text: string, replyTo: ReplyTarget | null) => boolean;
+  onSendFile: (file: File, caption?: string, replyTo?: ReplyTarget | null) => boolean;
   onRetrySend: () => Promise<boolean>;
   onClearSendError: () => void;
   sending: boolean;
@@ -121,7 +121,8 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
       event.preventDefault();
 
       if (selectedFile) {
-        const sent = await onSendFile(selectedFile, caption || text, replyToMessage);
+        // For file uploads, render immediately and upload in background
+        const sent = onSendFile(selectedFile, caption || text, replyToMessage);
         if (!sent) return;
 
         setPickedFile(null);
@@ -134,10 +135,15 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
       }
 
       if (!text.trim()) return;
-      const sent = await onSendText(text, replyToMessage);
-      if (!sent) return;
+      
+      // Clear UI immediately for text messages
+      const messageText = text;
+      const replyTarget = replyToMessage;
       setText("");
       onClearReplyToMessage();
+      
+      // Send in background without blocking UI
+      void onSendText(messageText, replyTarget);
     };
 
     const onInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -241,15 +247,6 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
         {sendError ? (
           <div className="composer-feedback" role="status" aria-live="polite">
             <span>Error al enviar. {sendError}</span>
-            <button type="button" className="ghost-btn" onClick={() => void onRetrySend()} disabled={sending}>
-              Reintentar
-            </button>
-          </div>
-        ) : null}
-
-        {sending ? (
-          <div className="composer-feedback" role="status" aria-live="polite">
-            <span>Enviando...</span>
           </div>
         ) : null}
 
@@ -308,7 +305,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
                   ? "Toca para detener"
                   : "Toca para iniciar dictado"
               }
-              disabled={sending || isOffline || Boolean(selectedFile)}
+              disabled={isOffline || Boolean(selectedFile)}
             >
               {isProcessing || isStarting ? (
                 <span className="mic-spinner" aria-hidden="true" />
@@ -334,7 +331,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(
             </button>
           ) : null}
 
-          <button className="send-btn" type="submit" disabled={sending || isOffline}>
+          <button className="send-btn" type="submit" disabled={isOffline || (!text.trim() && !selectedFile)}>
             {isOffline ? "Offline" : sending ? "Enviando" : "Enviar"}
           </button>
         </div>

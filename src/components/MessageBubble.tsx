@@ -96,11 +96,12 @@ const MessageBubbleBase = ({
   const saveEdit = async () => {
     if (isSavingEdit) return;
     setIsSavingEdit(true);
-    const ok = await onEdit(draftText);
-    setIsSavingEdit(false);
-    if (ok) {
-      setIsEditing(false);
-    }
+    void onEdit(draftText).then((ok) => {
+      setIsSavingEdit(false);
+      if (ok) {
+        setIsEditing(false);
+      }
+    });
   };
 
   return (

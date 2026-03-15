@@ -13,6 +13,7 @@ import {
   setDoc,
   startAfter,
   updateDoc,
+  writeBatch,
   type DocumentChange,
   type DocumentData,
   type QueryDocumentSnapshot
@@ -447,11 +448,14 @@ export const sendTextMessage = async (
   if (!payload) return null;
 
   await setDoc(doc(messagesCollection(workspaceId, conversationId), clientId), payload, { merge: true });
-  await setDoc(
+  
+  // Update conversation metadata in background without blocking
+  void setDoc(
     doc(db, "workspaces", workspaceId, "conversations", conversationId),
     { updatedAt: serverTimestamp(), lastMessageAt: serverTimestamp() },
     { merge: true }
   );
+  
   return clientId;
 };
 

@@ -98,106 +98,117 @@ export const ensureUserWorkspace = async (user: User) => {
   const existingConversationData = existingConversation.data();
   const existingConversationMemberData = existingConversationMember.data();
 
-  await setDoc(
-    nextUserRef,
-    {
-      uid: user.uid,
-      email: user.email ?? null,
-      name: user.displayName ?? "Usuario",
-      avatar: user.photoURL ?? null,
-      defaultWorkspaceId: workspaceId,
-      defaultConversationId: conversationId,
-      updatedAt: serverTimestamp(),
-      createdAt: existingUser.exists() ? existingUser.data().createdAt ?? serverTimestamp() : serverTimestamp()
-    },
-    { merge: true }
-  );
+  // Only write if documents don't exist or data has changed
+  const userNeedsUpdate = !existingUser.exists() || 
+    existingUser.data().email !== user.email ||
+    existingUser.data().name !== user.displayName ||
+    existingUser.data().avatar !== user.photoURL;
 
-  await setDoc(
-    nextWorkspaceRef,
-    {
-      ownerId: user.uid,
-      title:
-        typeof existingWorkspaceData?.title === "string" && existingWorkspaceData.title.length > 0
-          ? existingWorkspaceData.title
-          : "Mi espacio",
-      defaultConversationId: conversationId,
-      defaultAssistantMode:
-        existingWorkspaceData?.defaultAssistantMode === "personal" ? "personal" : "off",
-      updatedAt: serverTimestamp(),
-      createdAt: existingWorkspaceData?.createdAt ?? serverTimestamp()
-    },
-    { merge: true }
-  );
+  if (userNeedsUpdate) {
+    await setDoc(
+      nextUserRef,
+      {
+        uid: user.uid,
+        email: user.email ?? null,
+        name: user.displayName ?? "Usuario",
+        avatar: user.photoURL ?? null,
+        defaultWorkspaceId: workspaceId,
+        defaultConversationId: conversationId,
+        updatedAt: serverTimestamp(),
+        createdAt: existingUser.exists() ? existingUser.data().createdAt ?? serverTimestamp() : serverTimestamp()
+      },
+      { merge: true }
+    );
+  }
 
-  await setDoc(
-    nextWorkspaceMemberRef,
-    {
-      workspaceId,
-      userId: user.uid,
-      role:
-        existingWorkspaceMemberData?.role === "admin" || existingWorkspaceMemberData?.role === "member"
-          ? existingWorkspaceMemberData.role
-          : "owner",
-      joinedAt: existingWorkspaceMemberData?.joinedAt ?? serverTimestamp()
-    },
-    { merge: true }
-  );
+  const workspaceNeedsUpdate = !existingWorkspace.exists() ||
+    existingWorkspaceData?.ownerId !== user.uid ||
+    (typeof existingWorkspaceData?.title !== "string" || existingWorkspaceData.title.length === 0);
 
-  await setDoc(
-    nextConversationRef,
-    {
-      workspaceId,
-      title:
-        typeof existingConversationData?.title === "string" && existingConversationData.title.length > 0
-          ? existingConversationData.title
-          : "Mi espacio",
-      type:
-        existingConversationData?.type === "assistant" ||
-        existingConversationData?.type === "direct" ||
-        existingConversationData?.type === "group" ||
-        existingConversationData?.type === "topic"
-          ? existingConversationData.type
-          : "self",
-      ownerId: user.uid,
-      memberIds: Array.isArray(existingConversationData?.memberIds)
-        ? existingConversationData.memberIds.filter((entry): entry is string => typeof entry === "string")
-        : [user.uid],
-      defaultAssistantMode:
-        existingConversationData?.defaultAssistantMode === "personal" ? "personal" : "off",
-      updatedAt: serverTimestamp(),
-      createdAt: existingConversationData?.createdAt ?? serverTimestamp(),
-      lastMessageAt: existingConversationData?.lastMessageAt ?? null
-    },
-    { merge: true }
-  );
+  if (workspaceNeedsUpdate) {
+    await setDoc(
+      nextWorkspaceRef,
+      {
+        ownerId: user.uid,
+        title:
+          typeof existingWorkspaceData?.title === "string" && existingWorkspaceData.title.length > 0
+            ? existingWorkspaceData.title
+            : "Mi espacio",
+        defaultConversationId: conversationId,
+        defaultAssistantMode:
+          existingWorkspaceData?.defaultAssistantMode === "personal" ? "personal" : "off",
+        updatedAt: serverTimestamp(),
+        createdAt: existingWorkspaceData?.createdAt ?? serverTimestamp()
+      },
+      { merge: true }
+    );
+  }
 
-  await setDoc(
-    nextConversationMemberRef,
-    {
-      workspaceId,
-      conversationId,
-      userId: user.uid,
-      role:
-        existingConversationMemberData?.role === "admin" || existingConversationMemberData?.role === "member"
-          ? existingConversationMemberData.role
-          : "owner",
-      joinedAt: existingConversationMemberData?.joinedAt ?? serverTimestamp(),
-      lastReadMessageId:
-        typeof existingConversationMemberData?.lastReadMessageId === "string"
-          ? existingConversationMemberData.lastReadMessageId
-          : null,
-      muted: typeof existingConversationMemberData?.muted === "boolean" ? existingConversationMemberData.muted : false,
-      archived:
-        typeof existingConversationMemberData?.archived === "boolean" ? existingConversationMemberData.archived : false,
-      notificationLevel:
-        existingConversationMemberData?.notificationLevel === "mentions" ||
-        existingConversationMemberData?.notificationLevel === "none"
-          ? existingConversationMemberData.notificationLevel
-          : "all"
-    },
-    { merge: true }
-  );
+  if (!existingWorkspaceMember.exists()) {
+    await setDoc(
+      nextWorkspaceMemberRef,
+      {
+        workspaceId,
+        userId: user.uid,
+        role: "owner",
+        joinedAt: serverTimestamp()
+      },
+      { merge: true }
+    );
+  }
+
+  const conversationNeedsUpdate = !existingConversation.exists() ||
+    existingConversationData?.ownerId !== user.uid ||
+    !Array.isArray(existingConversationData?.memberIds) ||
+    existingConversationData.memberIds.length === 0;
+
+  if (conversationNeedsUpdate) {
+    await setDoc(
+      nextConversationRef,
+      {
+        workspaceId,
+        title:
+          typeof existingConversationData?.title === "string" && existingConversationData.title.length > 0
+            ? existingConversationData.title
+            : "Mi espacio",
+        type:
+          existingConversationData?.type === "assistant" ||
+          existingConversationData?.type === "direct" ||
+          existingConversationData?.type === "group" ||
+          existingConversationData?.type === "topic"
+            ? existingConversationData.type
+            : "self",
+        ownerId: user.uid,
+        memberIds: Array.isArray(existingConversationData?.memberIds)
+          ? existingConversationData.memberIds.filter((entry): entry is string => typeof entry === "string")
+          : [user.uid],
+        defaultAssistantMode:
+          existingConversationData?.defaultAssistantMode === "personal" ? "personal" : "off",
+        updatedAt: serverTimestamp(),
+        createdAt: existingConversationData?.createdAt ?? serverTimestamp(),
+        lastMessageAt: existingConversationData?.lastMessageAt ?? null
+      },
+      { merge: true }
+    );
+  }
+
+  if (!existingConversationMember.exists()) {
+    await setDoc(
+      nextConversationMemberRef,
+      {
+        workspaceId,
+        conversationId,
+        userId: user.uid,
+        role: "owner",
+        joinedAt: serverTimestamp(),
+        lastReadMessageId: null,
+        muted: false,
+        archived: false,
+        notificationLevel: "all"
+      },
+      { merge: true }
+    );
+  }
 
   return { workspaceId, conversationId };
 };
@@ -220,21 +231,77 @@ export const subscribeToWorkspace = (
   uid: string,
   cb: (payload: { workspace: UserWorkspace; workspaceRecord: Workspace; conversation: Conversation }) => void,
   onError: (error: Error) => void
-) =>
-  onSnapshot(
+) => {
+  let currentWorkspaceId: string | null = null;
+  let currentConversationId: string | null = null;
+  let workspaceUnsub: (() => void) | undefined;
+  let conversationUnsub: (() => void) | undefined;
+
+  const userUnsub = onSnapshot(
     userDoc(uid),
-    async (userSnap) => {
+    (userSnap) => {
       const userWorkspace = mapUserWorkspace(uid, userSnap.data());
-      const workspaceSnap = await getDoc(workspaceDoc(userWorkspace.defaultWorkspaceId));
-      const workspace = mapWorkspace(userWorkspace.defaultWorkspaceId, uid, workspaceSnap.data());
-      const conversationSnap = await getDoc(
-        conversationDoc(workspace.id, userWorkspace.defaultConversationId)
-      );
-      cb({
-        workspace: userWorkspace,
-        workspaceRecord: workspace,
-        conversation: mapConversation(workspace.id, userWorkspace.defaultConversationId, uid, conversationSnap.data())
-      });
+      const newWorkspaceId = userWorkspace.defaultWorkspaceId;
+      const newConversationId = userWorkspace.defaultConversationId;
+
+      // Only update listeners if workspace or conversation changed
+      if (newWorkspaceId !== currentWorkspaceId) {
+        currentWorkspaceId = newWorkspaceId;
+        currentConversationId = newConversationId;
+
+        // Cleanup old listeners
+        workspaceUnsub?.();
+        conversationUnsub?.();
+
+        // Setup new workspace listener
+        workspaceUnsub = onSnapshot(
+          workspaceDoc(newWorkspaceId),
+          (workspaceSnap) => {
+            const workspace = mapWorkspace(newWorkspaceId, uid, workspaceSnap.data());
+            
+            // Setup conversation listener
+            conversationUnsub = onSnapshot(
+              conversationDoc(newWorkspaceId, newConversationId),
+              (conversationSnap) => {
+                cb({
+                  workspace: userWorkspace,
+                  workspaceRecord: workspace,
+                  conversation: mapConversation(newWorkspaceId, newConversationId, uid, conversationSnap.data())
+                });
+              },
+              (error) => onError(error)
+            );
+          },
+          (error) => onError(error)
+        );
+      } else if (newConversationId !== currentConversationId) {
+        currentConversationId = newConversationId;
+        
+        // Only update conversation listener
+        conversationUnsub?.();
+        conversationUnsub = onSnapshot(
+          conversationDoc(newWorkspaceId!, newConversationId),
+          (conversationSnap) => {
+            // Get current workspace data
+            getDoc(workspaceDoc(newWorkspaceId!)).then(workspaceSnap => {
+              const workspace = mapWorkspace(newWorkspaceId!, uid, workspaceSnap.data());
+              cb({
+                workspace: userWorkspace,
+                workspaceRecord: workspace,
+                conversation: mapConversation(newWorkspaceId!, newConversationId, uid, conversationSnap.data())
+              });
+            });
+          },
+          (error) => onError(error)
+        );
+      }
     },
     (error) => onError(error)
   );
+
+  return () => {
+    userUnsub();
+    workspaceUnsub?.();
+    conversationUnsub?.();
+  };
+};

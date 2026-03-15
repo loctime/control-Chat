@@ -34,7 +34,6 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
     messages,
     loading,
     error,
-    sending,
     sendError,
     sendText,
     sendFile,
@@ -55,14 +54,14 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
     hasPendingWrites
   } = useMessages(user.uid, workspaceRecord?.id ?? null, conversation?.id ?? null, user.uid, authorSnapshot);
 
-  const notes = useNotes(workspaceRecord?.id ?? workspace?.defaultWorkspaceId ?? null, user.uid);
-  const documents = useDocuments(workspaceRecord?.id ?? workspace?.defaultWorkspaceId ?? null, user.uid);
-
   const [search, setSearch] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [replyToMessage, setReplyToMessage] = useState<ReplyTarget | null>(null);
   const [view, setView] = useState<WorkspaceView>("chat");
+
+  const notes = useNotes(view === "notes" ? workspaceRecord?.id ?? workspace?.defaultWorkspaceId ?? null : null, user.uid);
+  const documents = useDocuments(view === "documents" ? workspaceRecord?.id ?? workspace?.defaultWorkspaceId ?? null : null, user.uid);
 
   useEffect(() => {
     applyTheme(theme);
@@ -93,7 +92,7 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
   const handleDelete = useCallback((message: Message) => deleteMessage(message), [deleteMessage]);
   const handleRetryMessage = useCallback((message: Message) => void retryMessage(message.id), [retryMessage]);
   const handleEditMessage = useCallback(
-    (message: Message, nextText: string) => editMessage(message.id, nextText),
+    (message: Message, nextText: string) => Promise.resolve(editMessage(message.id, nextText)),
     [editMessage]
   );
   const handleToggleReaction = useCallback(
@@ -181,7 +180,7 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
             onSendFile={sendFile}
             onRetrySend={retryLastFailedSend}
             onClearSendError={clearSendError}
-            sending={sending}
+            sending={false}
             sendError={sendError}
             pendingFile={pendingDropFile}
             onClearPendingFile={() => {

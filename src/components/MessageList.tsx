@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Message } from "../lib/types";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { MessageBubble } from "./MessageBubble";
+import { Message } from "../lib/types";
 
 interface Props {
   messages: Message[];
@@ -48,7 +49,8 @@ export const MessageList = ({
   hasMore,
   uploadsProgress
 }: Props) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -59,7 +61,7 @@ export const MessageList = ({
   const filtered = useMemo(
     () =>
       messages.filter(
-        (msg) =>
+        (msg: Message) =>
           msg.text.toLowerCase().includes(normalizedSearch) ||
           (msg.fileName ?? "").toLowerCase().includes(normalizedSearch)
       ),
@@ -67,37 +69,28 @@ export const MessageList = ({
   );
 
   const scrollToBottom = () => {
-    const container = containerRef.current;
-    if (!container) return;
-    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
     setUnreadCount(0);
-    setReplyJumpError(null);
   };
 
   const scrollToMessage = async (messageId: string) => {
     setReplyJumpError(null);
 
-    let exists = filtered.some((msg) => msg.id === messageId);
+    let exists = filtered.some((msg: Message) => msg.id === messageId);
     if (!exists) {
       const loaded = await onEnsureMessageLoaded(messageId);
       if (!loaded) {
         setReplyJumpError("No se encontro el mensaje citado.");
         return;
       }
-      exists = true;
     }
 
-    if (!exists) {
-      setReplyJumpError("No se pudo navegar al mensaje citado con el filtro actual.");
-      return;
-    }
-
-    window.setTimeout(() => {
-      const target = document.getElementById(`message-${messageId}`);
-      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const index = filtered.findIndex((msg: Message) => msg.id === messageId);
+    if (index !== -1) {
+      virtuosoRef.current?.scrollToIndex({ index, behavior: 'smooth' });
       setHighlightedMessageId(messageId);
-      window.setTimeout(() => setHighlightedMessageId(null), 2000);
-    }, 100);
+      setTimeout(() => setHighlightedMessageId(null), 2000);
+    }
   };
 
   useEffect(() => {
@@ -155,7 +148,6 @@ export const MessageList = ({
 
   return (
     <div className="message-list">
-      {replyJumpError ? <div className="status-banner">{replyJumpError}</div> : null}
       {hasMore ? (
         <div className="list-header">
           <button type="button" className="load-more" onClick={onLoadMore} disabled={loadingMore}>
@@ -164,15 +156,18 @@ export const MessageList = ({
         </div>
       ) : null}
 
-      <div ref={containerRef} className="message-scroll">
-        {filtered.map((message, index) => {
+      <Virtuoso
+        ref={virtuosoRef}
+        className="message-scroll"
+        data={filtered}
+        itemContent={(index: number, message: Message) => {
           const previous = index > 0 ? filtered[index - 1] : null;
           const currentDate = dateLabel(message.createdAt?.seconds);
           const previousDate = previous ? dateLabel(previous.createdAt?.seconds) : null;
           const showDate = currentDate !== previousDate;
 
           return (
-            <div key={message.id} className="message-virtual-item">
+            <div className="message-virtual-item">
               {showDate ? <p className="date-chip">{currentDate}</p> : null}
               <MessageBubble
                 message={message}
@@ -189,18 +184,23 @@ export const MessageList = ({
               />
             </div>
           );
-        })}
-
-        {Object.entries(uploadsProgress).map(([id, item]) => (
-          <div key={id} className="upload-item">
-            <p>{item.name}</p>
-            <div className="upload-track">
-              <span style={{ width: `${item.progress}%` }} />
-            </div>
-            <small>{item.progress}%</small>
-          </div>
-        ))}
-      </div>
+        }}
+        components={{
+          Footer: () => (
+            <>
+              {Object.entries(uploadsProgress).map(([id, item]) => (
+                <div key={id} className="upload-item">
+                  <p>{item.name}</p>
+                  <div className="upload-track">
+                    <span style={{ width: `${item.progress}%` }} />
+                  </div>
+                  <small>{item.progress}%</small>
+                </div>
+              ))}
+            </>
+          )
+        }}
+      />
 
       {!isAtBottom && unreadCount > 0 ? (
         <button type="button" className="unread-cta" onClick={scrollToBottom}>
