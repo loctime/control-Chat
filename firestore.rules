@@ -107,14 +107,38 @@ service cloud.firestore {
       }
     }
 
+    function workspaceExists(workspaceId) {
+      return exists(/databases/$(database)/documents/workspaces/$(workspaceId));
+    }
+
+    function workspaceMemberExists(workspaceId, userId) {
+      return exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(userId));
+    }
+
+    function conversationExists(workspaceId, conversationId) {
+      return exists(/databases/$(database)/documents/workspaces/$(workspaceId)/conversations/$(conversationId));
+    }
+
+    function conversationMemberExists(workspaceId, conversationId, userId) {
+      return exists(/databases/$(database)/documents/workspaces/$(workspaceId)/conversations/$(conversationId)/members/$(userId));
+    }
+
     match /workspaces/{workspaceId} {
-      allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      allow read: if isSignedIn() && (
+        !workspaceExists(workspaceId)
+        || isWorkspaceMember(workspaceId)
+        || isWorkspaceOwner(workspaceId)
+      );
       allow create: if validWorkspaceCreate(workspaceId);
       allow update: if validWorkspaceUpdate(workspaceId);
       allow delete: if isWorkspaceOwner(workspaceId);
 
       match /members/{userId} {
-        allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+        allow read: if isSignedIn() && (
+          (userId == request.auth.uid && !workspaceMemberExists(workspaceId, userId))
+          || isWorkspaceMember(workspaceId)
+          || isWorkspaceOwner(workspaceId)
+        );
         allow create: if validMembershipCreate(workspaceId, userId);
         allow update: if validMembershipUpdate(workspaceId, userId);
         allow delete: if isWorkspaceManager(workspaceId) && !(
@@ -123,11 +147,19 @@ service cloud.firestore {
       }
 
       match /conversations/{conversationId} {
-        allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+        allow read: if isSignedIn() && (
+          !conversationExists(workspaceId, conversationId)
+          || isWorkspaceMember(workspaceId)
+          || isWorkspaceOwner(workspaceId)
+        );
         allow create, update, delete: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
 
         match /members/{userId} {
-          allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+          allow read: if isSignedIn() && (
+            (userId == request.auth.uid && !conversationMemberExists(workspaceId, conversationId, userId))
+            || isWorkspaceMember(workspaceId)
+            || isWorkspaceOwner(workspaceId)
+          );
           allow create, update, delete: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
         }
 

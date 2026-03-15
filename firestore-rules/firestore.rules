@@ -1,0 +1,1011 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    /* ========= BASE ========= */
+
+    // ========= HELPERS BASE =========
+    function isAuth() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    
+    // Roles desde documento - CONTROL-STORE
+    function controlStoreUserDocExists() {
+      return isAuth() && exists(/databases/$(db)/documents/apps/control-store/users/$(uid()));
+    }
+    function controlStoreUserRole() {
+      return isAuth() && controlStoreUserDocExists()
+        ? get(/databases/$(db)/documents/apps/control-store/users/$(uid())).data.role
+        : null;
+    }
+    
+    // Roles desde documento - CONTROLREMITO (para otras apps)
+    function userDocExists() {
+      return isAuth() && exists(/databases/$(db)/documents/apps/controlRemito/users/$(uid()));
+    }
+    function userRole() {
+      return isAuth() && userDocExists()
+        ? get(/databases/$(db)/documents/apps/controlRemito/users/$(uid())).data.role
+        : null;
+    }
+    
+    function userBranchId() {
+      return isAuth() && userDocExists()
+        ? get(/databases/$(db)/documents/apps/controlRemito/users/$(uid())).data.branchId
+        : null;
+    }
+    
+    // Helpers para CONTROL-STORE
+    function isControlStoreMaxDev() { return controlStoreUserRole() == 'maxdev'; }
+    function isControlStoreAdmin()  { return controlStoreUserRole() == 'admin' || controlStoreUserRole() == 'maxdev'; }
+    
+    // Helpers para CONTROLREMITO y otras apps
+    function isMaxDev() { return userRole() == 'maxdev'; }
+    function isAdmin()  { return userRole() == 'admin' || userRole() == 'maxdev'; }
+    function isFactory(){ return userRole() == 'factory'; }
+    function isBranch() { return userRole() == 'branch'; }
+    function isDelivery(){return userRole() == 'delivery'; }
+    function isInvited() { return userRole() == 'invited'; }
+    function isManager() { return userRole() == 'manager'; }
+    
+    // Operación y campos
+    function isCreate() { return !exists(resource.path); }
+    function isUpdate() { return exists(resource.path); }
+    
+    // Dueño por campo (e.g., userId/ownerId)
+    function ownerIs(field) {
+      return isAuth() && (
+        (isCreate() && request.resource.data[field] == uid()) ||
+        (isUpdate() && resource.data[field] == uid() && request.resource.data[field] == uid())
+      );
+    }
+    
+        // Inmutabilidad
+        function unchanged(field) {
+          return isUpdate() 
+            ? (!(field in request.resource.data) || request.resource.data[field] == resource.data[field])
+            : true;
+        }
+    
+    // Inmutabilidad flexible - permite null/undefined
+    function unchangedOrNull(field) {
+      return isUpdate() 
+        ? (
+            // Si el campo existe en ambos, deben ser iguales
+            (field in resource.data && field in request.resource.data && request.resource.data[field] == resource.data[field])
+            // O si no existe en ninguno
+            || (!(field in resource.data) && !(field in request.resource.data))
+            // O si ambos son null
+            || (resource.data[field] == null && request.resource.data[field] == null)
+            // O si no existe en el original y es null en la actualización
+            || (!(field in resource.data) && request.resource.data[field] == null)
+            // O si es null en el original y no existe en la actualización
+            || (resource.data[field] == null && !(field in request.resource.data))
+          )
+        : true;
+    }
+    
+    // Tipos y validadores comunes
+    function strBetween(field, min, max) {
+      return request.resource.data[field] is string
+          && request.resource.data[field].size() >= min
+          && request.resource.data[field].size() <= max;
+    }
+    function nonEmptyString(field) {
+      return request.resource.data[field] is string && request.resource.data[field].size() >= 1;
+    }
+    function isBool(field) { return request.resource.data[field] is bool; }
+    function isInt(field) {
+      return request.resource.data[field] is number
+          && (request.resource.data[field] % 1) == 0;
+    }
+    function isTs(field) { return request.resource.data[field] is timestamp; }
+    function isStringOrNull(field) {
+      return !(field in request.resource.data) || request.resource.data[field] is string || request.resource.data[field] == null;
+    }
+    
+    // Lectura pública por flag booleano del doc
+    function publicRead(flagField) {
+      return resource.data[flagField] == true;
+    }
+    
+    
+
+    /* ========= CONTROLFILE ========= */
+
+    // ========= CONTROLFILE =========
+    
+    // Archivos
+    match /files/{fileId} {
+      // READ público necesario para shares públicos vía Cloudflare Worker
+      // El control de acceso real está en shares/{token} que valida expiración y estado
+      // Los datos sensibles están en B2, no en Firestore
+      allow read: if true;
+      allow create: if isAuth() && request.resource.data.userId == uid();
+      allow update, delete: if isAuth() && resource.data.userId == uid();
+    }
+    
+    // Carpetas
+    match /folders/{folderId} {
+      allow create: if isAuth() && request.resource.data.userId == uid();
+      allow read, update, delete: if isAuth() && resource.data.userId == uid();
+    }
+    
+    // Sesiones de upload
+    match /uploadSessions/{sessionId} {
+      allow create: if isAuth() && request.resource.data.uid == uid();
+      allow read, update, delete: if isAuth() && resource.data.uid == uid();
+    }
+    
+    // ========= SHARES (GLOBAL) =========
+    match /shares/{shareId} {
+      allow read, write: if true;
+    }
+    
+    // Papelera
+    match /trash/{trashId} {
+      allow create: if isAuth() && request.resource.data.userId == uid();
+      allow read, update, delete: if isAuth() && resource.data.userId == uid();
+    }
+    
+    // Usuarios
+    match /users/{userId} {
+      allow create: if isAuth() && userId == uid();
+      allow read, update, delete: if isAuth() && userId == uid();
+    }
+    
+    
+
+    /* ========= CONTROLGASTOS ========= */
+
+    // ========= CONTROLGASTOS =========
+    
+    // Estructura organizada: apps/controlgastos/users/{userId}/...
+    match /apps/controlgastos/users/{userId}/expenses/{expenseId} {
+      allow read, write: if isAuth() && userId == uid();
+      allow create: if isAuth() && userId == uid();
+      allow update, delete: if isAuth() && userId == uid();
+    }
+    
+    match /apps/controlgastos/users/{userId}/payments/{paymentId} {
+      allow read, write: if isAuth() && userId == uid();
+      allow create: if isAuth() && userId == uid();
+      allow update, delete: if isAuth() && userId == uid();
+    }
+    
+    match /apps/controlgastos/users/{userId}/receipts/{receiptId} {
+      allow read, write: if isAuth() && userId == uid();
+      allow create: if isAuth() && userId == uid();
+      allow update, delete: if isAuth() && userId == uid();
+    }
+    
+    match /apps/controlgastos/users/{userId}/recurring_items/{itemId} {
+      allow read: if isAuth() && userId == uid();
+      allow create: if isAuth() 
+                    && userId == uid()
+                    && request.resource.data.userId == userId;
+      allow update: if isAuth() 
+                    && userId == uid()
+                    && resource.data.userId == userId;
+      allow delete: if isAuth() 
+                    && userId == uid()
+                    && resource.data.userId == userId;
+    }
+    
+    match /apps/controlgastos/users/{userId}/recurring_items_instances/{instanceId} {
+      allow read: if isAuth() && userId == uid();
+      allow create: if isAuth() 
+                    && userId == uid()
+                    && request.resource.data.userId == userId;
+      allow update: if isAuth() 
+                    && userId == uid()
+                    && resource.data.userId == userId;
+      allow delete: if isAuth() 
+                    && userId == uid()
+                    && resource.data.userId == userId;
+    }
+    
+    match /apps/controlgastos/users/{userId}/settings/{settingId} {
+      allow read, write: if isAuth() && userId == uid();
+      allow create: if isAuth() && userId == uid();
+      allow update, delete: if isAuth() && userId == uid();
+    }
+    
+    // Colecciones globales de ControlGastos
+    match /apps/controlgastos/categories/{categoryId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+    
+    // Reglas legacy para ControlGastos (temporal - compatibilidad hacia atrás)
+    match /expenses/{expenseId} {
+      allow read, write: if isAuth() && resource.data.userId == uid();
+      allow create: if isAuth() && request.resource.data.userId == uid();
+      allow update, delete: if isAuth() && resource.data.userId == uid();
+    }
+    
+    match /payments/{paymentId} {
+      allow read, write: if isAuth() && resource.data.userId == uid();
+      allow create: if isAuth() && request.resource.data.userId == uid();
+      allow update, delete: if isAuth() && resource.data.userId == uid();
+    }
+    
+    match /invoices/{invoiceId} {
+      allow read, write: if isAuth() && resource.data.userId == uid();
+      allow create: if isAuth() && request.resource.data.userId == uid();
+      allow update, delete: if isAuth() && resource.data.userId == uid();
+    }
+    
+
+    /* ========= AUDIT ========= */
+
+    match /apps/auditoria/owners/{ownerId}/{document=**} {
+    
+      allow read, write: if isAuth()
+        && (
+          uid() == ownerId ||
+          request.auth.token.ownerId == ownerId
+        );
+    }
+    
+    match /apps/auditoria/owners/{ownerId}/empleados/{empleadoId} {
+    
+      // LECTURA
+      allow read: if isAuth()
+        && (
+          uid() == ownerId ||
+          request.auth.token.ownerId == ownerId
+        );
+    
+      // CREAR
+      allow create: if isAuth()
+        && (
+          // Owner puede crear siempre
+          uid() == ownerId ||
+    
+          // Operario puede crear SOLO si la empresa está asignada
+          (
+            request.auth.token.ownerId == ownerId
+            && request.resource.data.empresaId is string
+            && request.resource.data.empresaId
+               in get(
+                 /databases/$(db)/documents/apps/auditoria/owners/$(ownerId)/usuarios/$(uid())
+               ).data.empresasAsignadas
+          )
+        );
+    
+      // UPDATE / DELETE (permitido por ahora)
+      allow update, delete: if isAuth()
+        && (
+          uid() == ownerId ||
+          (
+            request.auth.token.ownerId == ownerId
+            && resource.data.empresaId is string
+            && resource.data.empresaId
+               in get(
+                 /databases/$(db)/documents/apps/auditoria/owners/$(ownerId)/usuarios/$(uid())
+               ).data.empresasAsignadas
+          )
+        );
+    }
+    
+
+    /* ========= REPO ========= */
+
+    // ========= CONTROLREPO RULES =========
+    
+    // Documento principal del usuario en ControlRepo
+    match /apps/controlrepo/users/{userId} {
+    
+      // El usuario autenticado solo puede acceder a su propio documento
+      allow read, write: if isAuth() && uid() == userId;
+    
+      // Subcolecciones del usuario (preferences, futuras)
+      // NOTA: githubIntegration ya no se utiliza (GitHub OAuth eliminado)
+      match /{subPath=**} {
+        allow read, write: if isAuth() && uid() == userId;
+      }
+    }
+    
+
+    /* ========= EMAILS ========= */
+
+    match /apps/emails/{document=**} {
+      allow read: if true;
+    }
+    
+
+    /* ========= VALENTIN ========= */
+
+    /* ========= VALENTIN ========= */
+    
+    match /apps/valentin/respuestas/{docId} {
+      allow read, write: if true;
+    }
+
+    /* ========= CONTROLCHAT ========= */
+
+    /* ========= CONTROL CHAT HELPERS ========= */
+    
+    function workspace(workspaceId) {
+      return get(/databases/$(db)/documents/workspaces/$(workspaceId));
+    }
+    
+    function member(workspaceId, userId) {
+      return get(/databases/$(db)/documents/workspaces/$(workspaceId)/members/$(userId));
+    }
+    
+    function isWorkspaceOwner(workspaceId) {
+      return isAuth() && workspace(workspaceId).data.ownerId == uid();
+    }
+    
+    function isWorkspaceMember(workspaceId) {
+      return isAuth() &&
+        exists(/databases/$(db)/documents/workspaces/$(workspaceId)/members/$(uid()));
+    }
+    
+    function isWorkspaceAdmin(workspaceId) {
+      return isWorkspaceMember(workspaceId) &&
+        member(workspaceId, uid()).data.role == "admin";
+    }
+    
+    function isWorkspaceManager(workspaceId) {
+      return isWorkspaceOwner(workspaceId) || isWorkspaceAdmin(workspaceId);
+    }
+    
+    function workspaceUser(workspaceId) {
+      return isWorkspaceOwner(workspaceId) || isWorkspaceMember(workspaceId);
+    }
+    
+    function messageAuthor() {
+      return isAuth() && resource.data.authorId == uid();
+    }
+    
+    function legacyMigrationPending(userId) {
+      return isAuth()
+        && uid() == userId
+        && (
+          !exists(/databases/$(db)/documents/users/$(userId)) ||
+          !("migrationVersion" in get(/databases/$(db)/documents/users/$(userId)).data) ||
+          get(/databases/$(db)/documents/users/$(userId)).data.migrationVersion < 2
+        );
+    }
+    
+    
+    /* ========= USERS ========= */
+    
+    match /users/{userId} {
+    
+      allow read, write: if isAuth() && uid() == userId;
+    
+      match /preferences/{docId} {
+        allow read, write: if isAuth() && uid() == userId;
+      }
+    
+      match /notifications/{notificationId} {
+        allow read, write: if isAuth() && uid() == userId;
+      }
+    }
+    
+    
+    /* ========= WORKSPACES ========= */
+    
+    match /workspaces/{workspaceId} {
+    
+      allow read: if workspaceUser(workspaceId);
+    
+      allow create: if isAuth() &&
+        request.resource.data.ownerId == uid();
+    
+      allow update: if isWorkspaceOwner(workspaceId) &&
+        request.resource.data.ownerId == resource.data.ownerId;
+    
+      allow delete: if isWorkspaceOwner(workspaceId);
+    
+    
+      match /members/{userId} {
+    
+        allow read: if workspaceUser(workspaceId);
+    
+        allow create: if isWorkspaceManager(workspaceId) &&
+          request.resource.data.userId == userId;
+    
+        allow update: if isWorkspaceManager(workspaceId);
+    
+        allow delete: if isWorkspaceManager(workspaceId) &&
+          resource.data.userId != workspace(workspaceId).data.ownerId;
+      }
+    
+    
+      match /conversations/{conversationId} {
+    
+        allow read: if workspaceUser(workspaceId);
+    
+        allow create: if workspaceUser(workspaceId);
+    
+        allow update: if workspaceUser(workspaceId);
+    
+        allow delete: if isWorkspaceManager(workspaceId);
+    
+    
+        match /members/{userId} {
+          allow read: if workspaceUser(workspaceId);
+          allow create, update, delete: if workspaceUser(workspaceId);
+        }
+    
+    
+        match /messages/{messageId} {
+    
+          allow read: if workspaceUser(workspaceId);
+    
+          allow create: if workspaceUser(workspaceId);
+    
+          allow update: if messageAuthor();
+    
+          allow delete: if messageAuthor() || isWorkspaceManager(workspaceId);
+    
+    
+          match /reactions/{reactionId} {
+            allow read: if workspaceUser(workspaceId);
+            allow write: if workspaceUser(workspaceId);
+          }
+        }
+    
+    
+        match /threads/{threadId} {
+          allow read, write: if workspaceUser(workspaceId);
+        }
+    
+        match /pinned/{pinId} {
+          allow read, write: if workspaceUser(workspaceId);
+        }
+      }
+    
+    
+      match /attachments/{attachmentId} {
+    
+        allow read: if workspaceUser(workspaceId);
+    
+        allow create: if workspaceUser(workspaceId) &&
+          request.resource.data.ownerId == uid();
+    
+        allow update: if workspaceUser(workspaceId) &&
+          request.resource.data.ownerId == resource.data.ownerId;
+    
+        allow delete: if workspaceUser(workspaceId);
+      }
+    
+    
+      match /notes/{noteId} {
+    
+        allow read: if resource.data.ownerId == uid();
+    
+        allow create: if request.resource.data.ownerId == uid();
+    
+        allow update, delete: if resource.data.ownerId == uid();
+    
+    
+        match /links/{linkId} {
+          allow read, write: if resource.data.ownerId == uid();
+        }
+      }
+    
+    
+      match /documents/{documentId} {
+    
+        allow read: if resource.data.ownerId == uid();
+    
+        allow create: if request.resource.data.ownerId == uid();
+    
+        allow update, delete: if resource.data.ownerId == uid();
+    
+    
+        match /blocks/{blockId} {
+          allow read, write: if resource.data.ownerId == uid();
+        }
+      }
+    
+    
+      match /tags/{tagId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+      match /graphNodes/{nodeId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+      match /graphEdges/{edgeId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+      match /notifications/{notificationId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+      match /summaries/{summaryId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+      match /embeddings/{embeddingId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+      match /jobs/{jobId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+      match /events/{eventId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+      match /searchIndex/{indexId} {
+        allow read, write: if workspaceUser(workspaceId);
+      }
+    
+    }
+    
+    
+    /* ========= LEGACY MIGRATION ========= */
+    
+    match /apps/control-chat/users/{userId} {
+    
+      allow read: if legacyMigrationPending(userId);
+    
+      allow write: if false;
+    
+      match /messages/{messageId} {
+        allow read: if legacyMigrationPending(userId);
+        allow write: if false;
+      }
+    }
+
+    /* ========= HORARIOS ========= */
+
+    /* ===============================
+       HORARIOS – LECTURA PÚBLICA
+       =============================== */
+    
+    /* ========= HELPERS ========= */
+    
+    function horariosUserOwnerId() {
+      return isAuth()
+        && exists(/databases/$(db)/documents/apps/horarios/users/$(uid()))
+        ? get(/databases/$(db)/documents/apps/horarios/users/$(uid())).data.ownerId
+        : null;
+    }
+    
+    function horariosCanActFor(ownerId) {
+      return isAuth()
+        && ownerId != null
+        && (
+          uid() == ownerId
+          || (
+            exists(/databases/$(db)/documents/apps/horarios/users/$(uid()))
+            &&
+            get(/databases/$(db)/documents/apps/horarios/users/$(uid())).data.ownerId == ownerId
+          )
+          || (
+            exists(/databases/$(db)/documents/apps/horarios/users/$(uid()))
+            &&
+            get(/databases/$(db)/documents/apps/horarios/users/$(uid())).data.role
+              in ['admin','manager','factory','maxdev']
+          )
+        );
+    }
+    
+    
+    
+    /* ===============================
+       PUBLIC COMPANIES
+       =============================== */
+    
+    match /apps/horarios/publicCompanies/{slug} {
+      allow read: if true;
+    
+      allow create: if isAuth()
+        && request.resource.data.ownerId == uid();
+    
+      allow update, delete: if false;
+    }
+    
+    /* ===============================
+       PUBLIC SCHEDULES
+       =============================== */
+    
+    match /apps/horarios/publicSchedules/{companySlug}/weeks/{weekId} {
+      allow read: if true;
+    
+      allow create, update: if isAuth()
+        && request.resource.data.ownerId == uid();
+    
+      allow delete: if false;
+    }
+    
+    /* ===============================
+       PUBLIC OWNERS
+       =============================== */
+    
+    match /apps/horarios/publicOwners/{ownerId} {
+      allow read: if true;
+      allow write: if horariosCanActFor(ownerId);
+    }
+    
+    /* ===============================
+       PRODUCTS
+       =============================== */
+    
+    match /apps/horarios/products/{docId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+      allow update: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+      allow delete: if horariosCanActFor(resource.data.ownerId);
+    }
+    
+    /* ===============================
+       PEDIDOS
+       =============================== */
+    
+    match /apps/horarios/pedidos/{docId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+      allow update: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+      allow delete: if horariosCanActFor(resource.data.ownerId);
+    }
+    
+    match /apps/horarios/pedidos/{docId}/{sub=**} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+      allow update: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+      allow delete: if horariosCanActFor(resource.data.ownerId);
+    }
+    
+    /* ===============================
+       STOCK ACTUAL
+       =============================== */
+    
+    match /apps/horarios/stock_actual/{docId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+      allow update: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+      allow delete: if horariosCanActFor(resource.data.ownerId);
+    }
+    
+    /* ===============================
+       STOCK MOVIMIENTOS
+       =============================== */
+    
+    match /apps/horarios/stock_movimientos/{docId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+      allow update: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+      allow delete: if horariosCanActFor(resource.data.ownerId);
+    }
+    
+    /* ===============================
+       USERS
+       =============================== */
+    
+    match /apps/horarios/users/{userId} {
+      allow read: if isAuth()
+        && (
+          userId == uid()
+          || (
+            exists(/databases/$(db)/documents/apps/horarios/users/$(userId))
+            && horariosCanActFor(
+              get(/databases/$(db)/documents/apps/horarios/users/$(userId)).data.ownerId
+            )
+          )
+        );
+    
+      allow create: if isAuth() && userId == uid();
+    
+      allow update: if isAuth()
+        && (
+          userId == uid()
+          || (
+            resource.data.ownerId != null
+            && horariosCanActFor(resource.data.ownerId)
+          )
+        );
+    
+      allow delete: if isAuth()
+        && (
+          userId == uid()
+          || resource.data.ownerId == uid()
+          || (
+            resource.data.ownerId != null
+            && horariosCanActFor(resource.data.ownerId)
+          )
+        );
+    }
+    
+    /* ===============================
+       INVITACIONES
+       =============================== */
+    
+    match /apps/horarios/invitaciones/{docId} {
+      allow read: if true;
+    
+      allow create: if isAuth();
+    
+      allow update: if isAuth()
+        && (
+          resource.data.ownerId == uid()
+          ||
+          (
+            request.resource.data.usado == true
+            && request.resource.data.usadoPor == uid()
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(["usado", "usadoPor", "usadoEn"])
+          )
+        );
+    
+      allow delete: if isAuth()
+        && resource.data.ownerId != null
+        && horariosCanActFor(resource.data.ownerId);
+    }
+    
+    /* ===============================
+       EMPLOYEES
+       =============================== */
+    
+    match /apps/horarios/employees/{docId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+    
+      allow update, delete: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+    }
+    
+    
+    /* ===============================
+       SHIFTS
+       =============================== */
+    
+    match /apps/horarios/shifts/{docId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+      allow update: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+      allow delete: if horariosCanActFor(resource.data.ownerId);
+    }
+    
+    /* ===============================
+       SCHEDULES
+       =============================== */
+    
+    match /apps/horarios/schedules/{docId} {
+    
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+    
+      allow update, delete: if isAuth();
+    }
+    
+    /* ===============================
+       WEEKS (base week + versions)
+       =============================== */
+    
+    match /apps/horarios/weeks/{baseWeekId} {
+      allow read, write: if isAuth()
+        && horariosCanActFor(
+          resource != null ? resource.data.ownerId : request.resource.data.ownerId
+        );
+    
+      match /versions/{versionNumber} {
+        allow read, write: if isAuth()
+          && horariosCanActFor(
+            get(/databases/$(db)/documents/apps/horarios/weeks/$(baseWeekId)).data.ownerId
+          );
+      }
+    }
+    
+    /* ===============================
+       HISTORIAL (cambios de horarios)
+       =============================== */
+    
+    match /apps/horarios/historial/{historialId} {
+      allow read: if isAuth() && resource.data.createdBy == uid();
+    
+      allow create: if isAuth() && request.resource.data.createdBy == uid();
+    
+      allow update: if false;
+    
+      allow delete: if isAuth() && resource.data.createdBy == uid();
+    }
+    
+    /* ===============================
+       EMPLOYEE FIXED RULES
+       =============================== */
+    
+    match /apps/horarios/employee_fixed_rules/{ruleId} {
+    
+      allow read: if isAuth() && (
+        resource.data.ownerId == uid()
+        ||
+        (
+          exists(/databases/$(db)/documents/apps/horarios/users/$(uid()))
+          &&
+          get(/databases/$(db)/documents/apps/horarios/users/$(uid())).data.ownerId
+            == resource.data.ownerId
+        )
+        ||
+        (
+          exists(/databases/$(db)/documents/apps/horarios/users/$(uid()))
+          &&
+          get(/databases/$(db)/documents/apps/horarios/users/$(uid())).data.role
+            in ['admin', 'manager', 'factory', 'maxdev']
+        )
+      );
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+    
+      allow update, delete: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+    }
+    
+    
+    /* ===============================
+       DAILY ACTIONS
+       =============================== */
+    
+    match /apps/horarios/dailyActions/{ownerId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(ownerId);
+    
+      allow update: if horariosCanActFor(ownerId);
+    
+      allow delete: if horariosCanActFor(ownerId);
+    }
+    
+    /* ===============================
+       DAILY ACTION STATUS
+       =============================== */
+    
+    match /apps/horarios/dailyActionStatus/{docId} {
+      allow read: if true;
+    
+      allow create, update: if true;
+    
+      allow delete: if false;
+    }
+    
+    /* ===============================
+       DAILY TASK STATUS
+       =============================== */
+    
+    match /apps/horarios/dailyTaskStatus/{docId} {
+      allow read: if true;
+    
+      allow create, update: if true;
+    
+      allow delete: if false;
+    }
+    
+    /* ===============================
+       ENLACES PUBLICOS
+       =============================== */
+    
+    match /apps/horarios/enlaces_publicos/{ownerId} {
+      allow read: if true;
+    
+      allow create, update: if isAuth() && horariosCanActFor(ownerId);
+    
+      allow delete: if isAuth() && horariosCanActFor(ownerId);
+    }
+    
+    /* ===============================
+       TASKS
+       =============================== */
+    
+    match /apps/horarios/tasks/{taskId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+    
+      allow update, delete: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+    }
+    
+    /* ===============================
+       CONFIG
+       =============================== */
+    
+    match /apps/horarios/config/{docId} {
+      allow read: if true;
+    
+      allow create: if horariosCanActFor(request.resource.data.ownerId);
+    
+      allow update, delete: if horariosCanActFor(
+        resource.data.ownerId != null
+          ? resource.data.ownerId
+          : request.resource.data.ownerId
+      );
+    }
+    
+
+    /* ========= MAPPING ========= */
+
+    // =============================================================
+    // 🚨 ARCHIVO PARCIAL DE REGLAS – SE CONCATENA AUTOMÁTICAMENTE 🚨
+    //
+    // ⚠️ NO ES UN ARCHIVO DE REGLAS COMPLETO
+    //
+    // PROHIBIDO DEFINIR AQUÍ:
+    // ❌ rules_version
+    // ❌ service cloud.firestore
+    // ❌ match /databases/{database}/documents
+    //
+    // 👉 Este archivo SOLO puede contener:
+    //    match /ruta/{id} { ... }
+    //
+    // ❗ Si agregás un `match /databases/...`
+    //    Firestore IGNORA estas reglas sin error visible.
+    // =============================================================
+    
+    
+    
+      match /apps/mapping/schema/{docId} {
+        allow read, write: if true;
+      }
+    
+      match /schemaTemplates/{schemaId} {
+        allow read: if true;
+        allow write: if true; // Los templates del sistema se guardan automáticamente
+      }
+    
+      match /mappings/{mappingId} {
+        allow read, write: if true; // Permitir leer y escribir mapeos
+      }
+    
+    
+    
+
+    /* ========= DENY POR DEFECTO ========= */
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

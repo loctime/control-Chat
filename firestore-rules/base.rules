@@ -1,0 +1,104 @@
+// ========= HELPERS BASE =========
+function isAuth() { return request.auth != null; }
+function uid() { return request.auth.uid; }
+
+// Roles desde documento - CONTROL-STORE
+function controlStoreUserDocExists() {
+  return isAuth() && exists(/databases/$(db)/documents/apps/control-store/users/$(uid()));
+}
+function controlStoreUserRole() {
+  return isAuth() && controlStoreUserDocExists()
+    ? get(/databases/$(db)/documents/apps/control-store/users/$(uid())).data.role
+    : null;
+}
+
+// Roles desde documento - CONTROLREMITO (para otras apps)
+function userDocExists() {
+  return isAuth() && exists(/databases/$(db)/documents/apps/controlRemito/users/$(uid()));
+}
+function userRole() {
+  return isAuth() && userDocExists()
+    ? get(/databases/$(db)/documents/apps/controlRemito/users/$(uid())).data.role
+    : null;
+}
+
+function userBranchId() {
+  return isAuth() && userDocExists()
+    ? get(/databases/$(db)/documents/apps/controlRemito/users/$(uid())).data.branchId
+    : null;
+}
+
+// Helpers para CONTROL-STORE
+function isControlStoreMaxDev() { return controlStoreUserRole() == 'maxdev'; }
+function isControlStoreAdmin()  { return controlStoreUserRole() == 'admin' || controlStoreUserRole() == 'maxdev'; }
+
+// Helpers para CONTROLREMITO y otras apps
+function isMaxDev() { return userRole() == 'maxdev'; }
+function isAdmin()  { return userRole() == 'admin' || userRole() == 'maxdev'; }
+function isFactory(){ return userRole() == 'factory'; }
+function isBranch() { return userRole() == 'branch'; }
+function isDelivery(){return userRole() == 'delivery'; }
+function isInvited() { return userRole() == 'invited'; }
+function isManager() { return userRole() == 'manager'; }
+
+// Operación y campos
+function isCreate() { return !exists(resource.path); }
+function isUpdate() { return exists(resource.path); }
+
+// Dueño por campo (e.g., userId/ownerId)
+function ownerIs(field) {
+  return isAuth() && (
+    (isCreate() && request.resource.data[field] == uid()) ||
+    (isUpdate() && resource.data[field] == uid() && request.resource.data[field] == uid())
+  );
+}
+
+    // Inmutabilidad
+    function unchanged(field) {
+      return isUpdate() 
+        ? (!(field in request.resource.data) || request.resource.data[field] == resource.data[field])
+        : true;
+    }
+
+// Inmutabilidad flexible - permite null/undefined
+function unchangedOrNull(field) {
+  return isUpdate() 
+    ? (
+        // Si el campo existe en ambos, deben ser iguales
+        (field in resource.data && field in request.resource.data && request.resource.data[field] == resource.data[field])
+        // O si no existe en ninguno
+        || (!(field in resource.data) && !(field in request.resource.data))
+        // O si ambos son null
+        || (resource.data[field] == null && request.resource.data[field] == null)
+        // O si no existe en el original y es null en la actualización
+        || (!(field in resource.data) && request.resource.data[field] == null)
+        // O si es null en el original y no existe en la actualización
+        || (resource.data[field] == null && !(field in request.resource.data))
+      )
+    : true;
+}
+
+// Tipos y validadores comunes
+function strBetween(field, min, max) {
+  return request.resource.data[field] is string
+      && request.resource.data[field].size() >= min
+      && request.resource.data[field].size() <= max;
+}
+function nonEmptyString(field) {
+  return request.resource.data[field] is string && request.resource.data[field].size() >= 1;
+}
+function isBool(field) { return request.resource.data[field] is bool; }
+function isInt(field) {
+  return request.resource.data[field] is number
+      && (request.resource.data[field] % 1) == 0;
+}
+function isTs(field) { return request.resource.data[field] is timestamp; }
+function isStringOrNull(field) {
+  return !(field in request.resource.data) || request.resource.data[field] is string || request.resource.data[field] == null;
+}
+
+// Lectura pública por flag booleano del doc
+function publicRead(flagField) {
+  return resource.data[flagField] == true;
+}
+

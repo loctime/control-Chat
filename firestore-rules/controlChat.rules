@@ -1,0 +1,259 @@
+/* ========= CONTROL CHAT HELPERS ========= */
+
+function workspace(workspaceId) {
+  return get(/databases/$(db)/documents/workspaces/$(workspaceId));
+}
+
+function member(workspaceId, userId) {
+  return get(/databases/$(db)/documents/workspaces/$(workspaceId)/members/$(userId));
+}
+
+function isWorkspaceOwner(workspaceId) {
+  return isAuth() && workspace(workspaceId).data.ownerId == uid();
+}
+
+function isWorkspaceMember(workspaceId) {
+  return isAuth() &&
+    exists(/databases/$(db)/documents/workspaces/$(workspaceId)/members/$(uid()));
+}
+
+function isWorkspaceAdmin(workspaceId) {
+  return isWorkspaceMember(workspaceId) &&
+    member(workspaceId, uid()).data.role == "admin";
+}
+
+function isWorkspaceManager(workspaceId) {
+  return isWorkspaceOwner(workspaceId) || isWorkspaceAdmin(workspaceId);
+}
+
+function workspaceUser(workspaceId) {
+  return isWorkspaceOwner(workspaceId) || isWorkspaceMember(workspaceId);
+}
+
+// Permitir lectura cuando el doc no existe (creación inicial del workspace/conversación)
+function workspaceExists(workspaceId) {
+  return exists(/databases/$(db)/documents/workspaces/$(workspaceId));
+}
+function workspaceMemberExists(workspaceId, userId) {
+  return exists(/databases/$(db)/documents/workspaces/$(workspaceId)/members/$(userId));
+}
+function conversationExists(workspaceId, conversationId) {
+  return exists(/databases/$(db)/documents/workspaces/$(workspaceId)/conversations/$(conversationId));
+}
+function conversationMemberExists(workspaceId, conversationId, userId) {
+  return exists(/databases/$(db)/documents/workspaces/$(workspaceId)/conversations/$(conversationId)/members/$(userId));
+}
+
+function messageAuthor() {
+  return isAuth() && resource.data.authorId == uid();
+}
+
+function legacyMigrationPending(userId) {
+  return isAuth()
+    && uid() == userId
+    && (
+      !exists(/databases/$(db)/documents/users/$(userId)) ||
+      !("migrationVersion" in get(/databases/$(db)/documents/users/$(userId)).data) ||
+      get(/databases/$(db)/documents/users/$(userId)).data.migrationVersion < 2
+    );
+}
+
+
+/* ========= USERS ========= */
+
+match /users/{userId} {
+
+  allow read, write: if isAuth() && uid() == userId;
+
+  match /preferences/{docId} {
+    allow read, write: if isAuth() && uid() == userId;
+  }
+
+  match /notifications/{notificationId} {
+    allow read, write: if isAuth() && uid() == userId;
+  }
+}
+
+
+/* ========= WORKSPACES ========= */
+
+match /workspaces/{workspaceId} {
+
+  allow read: if isAuth() && (
+    !workspaceExists(workspaceId) ||
+    workspaceUser(workspaceId)
+  );
+
+  allow create: if isAuth() &&
+    request.resource.data.ownerId == uid();
+
+  allow update: if isWorkspaceOwner(workspaceId) &&
+    request.resource.data.ownerId == resource.data.ownerId;
+
+  allow delete: if isWorkspaceOwner(workspaceId);
+
+
+  match /members/{userId} {
+
+    allow read: if isAuth() && (
+      (userId == uid() && !workspaceMemberExists(workspaceId, userId)) ||
+      workspaceUser(workspaceId)
+    );
+
+    allow create: if isWorkspaceManager(workspaceId) &&
+      request.resource.data.userId == userId;
+
+    allow update: if isWorkspaceManager(workspaceId);
+
+    allow delete: if isWorkspaceManager(workspaceId) &&
+      resource.data.userId != workspace(workspaceId).data.ownerId;
+  }
+
+
+  match /conversations/{conversationId} {
+
+    allow read: if isAuth() && (
+      !conversationExists(workspaceId, conversationId) ||
+      workspaceUser(workspaceId)
+    );
+
+    allow create: if workspaceUser(workspaceId);
+
+    allow update: if workspaceUser(workspaceId);
+
+    allow delete: if isWorkspaceManager(workspaceId);
+
+
+    match /members/{userId} {
+      allow read: if isAuth() && (
+        (userId == uid() && !conversationMemberExists(workspaceId, conversationId, userId)) ||
+        workspaceUser(workspaceId)
+      );
+      allow create, update, delete: if workspaceUser(workspaceId);
+    }
+
+
+    match /messages/{messageId} {
+
+      allow read: if workspaceUser(workspaceId);
+
+      allow create: if workspaceUser(workspaceId);
+
+      allow update: if messageAuthor();
+
+      allow delete: if messageAuthor() || isWorkspaceManager(workspaceId);
+
+
+      match /reactions/{reactionId} {
+        allow read: if workspaceUser(workspaceId);
+        allow write: if workspaceUser(workspaceId);
+      }
+    }
+
+
+    match /threads/{threadId} {
+      allow read, write: if workspaceUser(workspaceId);
+    }
+
+    match /pinned/{pinId} {
+      allow read, write: if workspaceUser(workspaceId);
+    }
+  }
+
+
+  match /attachments/{attachmentId} {
+
+    allow read: if workspaceUser(workspaceId);
+
+    allow create: if workspaceUser(workspaceId) &&
+      request.resource.data.ownerId == uid();
+
+    allow update: if workspaceUser(workspaceId) &&
+      request.resource.data.ownerId == resource.data.ownerId;
+
+    allow delete: if workspaceUser(workspaceId);
+  }
+
+
+  match /notes/{noteId} {
+
+    allow read: if resource.data.ownerId == uid();
+
+    allow create: if request.resource.data.ownerId == uid();
+
+    allow update, delete: if resource.data.ownerId == uid();
+
+
+    match /links/{linkId} {
+      allow read, write: if resource.data.ownerId == uid();
+    }
+  }
+
+
+  match /documents/{documentId} {
+
+    allow read: if resource.data.ownerId == uid();
+
+    allow create: if request.resource.data.ownerId == uid();
+
+    allow update, delete: if resource.data.ownerId == uid();
+
+
+    match /blocks/{blockId} {
+      allow read, write: if resource.data.ownerId == uid();
+    }
+  }
+
+
+  match /tags/{tagId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+  match /graphNodes/{nodeId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+  match /graphEdges/{edgeId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+  match /notifications/{notificationId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+  match /summaries/{summaryId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+  match /embeddings/{embeddingId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+  match /jobs/{jobId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+  match /events/{eventId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+  match /searchIndex/{indexId} {
+    allow read, write: if workspaceUser(workspaceId);
+  }
+
+}
+
+
+/* ========= LEGACY MIGRATION ========= */
+
+match /apps/control-chat/users/{userId} {
+
+  allow read: if legacyMigrationPending(userId);
+
+  allow write: if false;
+
+  match /messages/{messageId} {
+    allow read: if legacyMigrationPending(userId);
+    allow write: if false;
+  }
+}
