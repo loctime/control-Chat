@@ -21,6 +21,7 @@ import {
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { db, storage } from "../../lib/firebase";
 import { AttachmentRecord, Message, MessageStatus, ReplyTarget } from "../../domain/entities";
+import { uploadFile, deleteFile } from "../../services/controlfileUpload";
 
 const PAGE_SIZE_MOBILE = 30;
 const PAGE_SIZE_DESKTOP = 60;
@@ -476,23 +477,16 @@ export const sendFileMessageWithProgress = async (
   const clientId = providedClientId ?? buildClientId();
   const messageId = clientId;
   const attachmentId = `attachment-${messageId}`;
-  const storagePath = `workspaces/${workspaceId}/attachments/${messageId}/${file.name}`;
-  const storageRef = ref(storage, storagePath);
-  const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
 
-  await new Promise<void>((resolve, reject) => {
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        if (!onProgress) return;
-        onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
-      },
-      reject,
-      () => resolve()
-    );
-  });
+  // Upload file using ControlFile SDK
+  const uploadResult = await uploadFile(
+    file,
+    workspaceId,
+    conversationId,
+    messageId,
+    onProgress ? (progress) => onProgress(progress.percentage) : undefined
+  );
 
-  const url = await getDownloadURL(storageRef);
   const attachment: AttachmentRecord = {
     id: attachmentId,
     workspaceId,
@@ -502,8 +496,8 @@ export const sendFileMessageWithProgress = async (
     kind: isImage(file) ? "image" : isVideo(file) ? "video" : "file",
     name: file.name,
     mimeType: file.type || null,
-    url,
-    storagePath,
+    url: uploadResult.downloadUrl,
+    storagePath: uploadResult.fileId, // Use ControlFile fileId as storagePath
     size: file.size,
     createdAt: null,
     status: "uploaded"
@@ -622,7 +616,18 @@ export const deleteMessageAndAsset = async (
     if (!attachmentSnap.exists()) continue;
 
     const data = attachmentSnap.data();
+    
+    // Delete from ControlFile if we have a fileId (stored in storagePath)
     if (typeof data.storagePath === "string" && data.storagePath.length > 0) {
+      try {
+        await deleteFile(data.storagePath);
+      } catch {
+        // If the file already doesn't exist in ControlFile, continue with deletion
+      }
+    }
+    
+    // Fallback: try Firebase Storage deletion for backward compatibility
+    if (typeof data.storagePath === "string" && data.storagePath.startsWith('workspaces/')) {
       try {
         await deleteObject(ref(storage, data.storagePath));
       } catch {

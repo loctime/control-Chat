@@ -1,0 +1,315 @@
+{
+  "name": "@controlfile/sdk",
+  "version": "1.0.9",
+  "purpose": "Standalone SDK for the ControlFile backend",
+  "entrypoint": "ControlFileClient",
+  "authentication": {
+    "type": "bearer",
+    "header": "Authorization: Bearer <token>",
+    "tokenProvider": "getAuthToken(): Promise<string>"
+  },
+  "entities": {
+    "File": {
+      "description": "Stored binary object",
+      "fields": {
+        "id": "string",
+        "userId": "string",
+        "name": "string",
+        "size": "number",
+        "mime": "string",
+        "type": "'file'",
+        "parentId": "string|null",
+        "appId": "string|undefined",
+        "createdAt": "string|Date",
+        "updatedAt": "string|Date"
+      }
+    },
+    "Folder": {
+      "description": "Hierarchical container",
+      "fields": {
+        "id": "string",
+        "userId": "string",
+        "name": "string",
+        "type": "'folder'",
+        "parentId": "string|null",
+        "appId": "string|undefined",
+        "createdAt": "string|Date",
+        "updatedAt": "string|Date"
+      }
+    },
+    "Share": {
+      "description": "Public file link",
+      "fields": {
+        "token": "string",
+        "fileId": "string",
+        "fileName": "string",
+        "fileSize": "number",
+        "mime": "string",
+        "expiresAt": "string|Date|null",
+        "downloadCount": "number",
+        "shareUrl": "string"
+      }
+    },
+    "UserProfile": {
+      "description": "Authenticated user profile",
+      "fields": {
+        "uid": "string",
+        "email": "string|undefined",
+        "displayName": "string|undefined",
+        "username": "string|undefined",
+        "metadata": "UserProfileMetadata|undefined"
+      }
+    },
+    "ConceptualBusinessEntities": {
+      "Company": {
+        "description": "Application-level entity, not a first-class SDK module"
+      },
+      "Employee": {
+        "description": "Application-level entity, not a first-class SDK module"
+      },
+      "Vehicle": {
+        "description": "Application-level entity, not a first-class SDK module"
+      },
+      "Document": {
+        "description": "Usually maps to SDK File"
+      },
+      "ApprovedDocument": {
+        "description": "Usually maps to File plus approval metadata"
+      },
+      "RequiredDocument": {
+        "description": "Usually managed by the integrating backend"
+      },
+      "Backup": {
+        "description": "Usually exported as a File"
+      }
+    }
+  },
+  "modules": {
+    "files": {
+      "operations": {
+        "list": {
+          "parameters": {
+            "parentId": "string|null|undefined",
+            "pageSize": "number|undefined",
+            "cursor": "string|undefined"
+          },
+          "response": "Promise<ListFilesResponse>"
+        },
+        "getDownloadUrl": {
+          "parameters": {
+            "fileId": "string"
+          },
+          "response": "Promise<GetDownloadUrlResponse>"
+        },
+        "upload": {
+          "parameters": {
+            "file": "File|Blob",
+            "name": "string",
+            "parentId": "string|null",
+            "onProgress": "function|undefined"
+          },
+          "response": "Promise<UploadResponse>"
+        },
+        "uploadFile": {
+          "parameters": {
+            "file": "File|Blob",
+            "path": "string[]",
+            "userId": "string",
+            "onProgress": "function|undefined"
+          },
+          "response": "Promise<FileResponse>"
+        },
+        "replace": {
+          "parameters": {
+            "fileId": "string",
+            "file": "File|Blob"
+          },
+          "response": "Promise<ReplaceFileResponse>"
+        },
+        "rename": {
+          "parameters": {
+            "fileId": "string",
+            "newName": "string"
+          },
+          "response": "Promise<void>"
+        },
+        "delete": {
+          "parameters": {
+            "fileId": "string"
+          },
+          "response": "Promise<void>"
+        },
+        "permanentDelete": {
+          "parameters": {
+            "fileId": "string"
+          },
+          "response": "Promise<void>"
+        },
+        "emptyTrash": {
+          "parameters": {
+            "fileIds": "string[]"
+          },
+          "response": "Promise<EmptyTrashResponse>"
+        }
+      }
+    },
+    "folders": {
+      "operations": {
+        "ensurePath": {
+          "parameters": {
+            "path": "string[]",
+            "userId": "string"
+          },
+          "response": "Promise<string>"
+        },
+        "create": {
+          "parameters": {
+            "name": "string",
+            "parentId": "string|null|undefined"
+          },
+          "response": "Promise<CreateFolderResponse>"
+        },
+        "permanentDelete": {
+          "parameters": {
+            "folderId": "string"
+          },
+          "response": "Promise<void>"
+        }
+      }
+    },
+    "shares": {
+      "operations": {
+        "create": {
+          "parameters": {
+            "fileId": "string",
+            "expiresIn": "number|undefined"
+          },
+          "response": "Promise<CreateShareResponse>"
+        },
+        "getInfo": {
+          "parameters": {
+            "token": "string"
+          },
+          "response": "Promise<ShareInfo>"
+        },
+        "getDownloadUrl": {
+          "parameters": {
+            "token": "string"
+          },
+          "response": "Promise<ShareDownloadResponse>"
+        },
+        "list": {
+          "parameters": {},
+          "response": "Promise<Share[]>"
+        },
+        "revoke": {
+          "parameters": {
+            "token": "string"
+          },
+          "response": "Promise<void>"
+        }
+      }
+    },
+    "users": {
+      "operations": {
+        "getProfile": {
+          "parameters": {},
+          "response": "Promise<UserProfileResponse>"
+        },
+        "updateProfile": {
+          "parameters": {
+            "displayName": "string|undefined",
+            "username": "string|undefined",
+            "bio": "string|undefined",
+            "website": "string|undefined",
+            "location": "string|undefined",
+            "isPublic": "boolean|undefined",
+            "customFields": "Record<string,unknown>|undefined"
+          },
+          "response": "Promise<UpdateUserProfileResponse>"
+        },
+        "initialize": {
+          "parameters": {},
+          "response": "Promise<InitializeUserResponse>"
+        },
+        "getSettings": {
+          "parameters": {},
+          "response": "Promise<UserSettingsResponse>"
+        },
+        "updateSettings": {
+          "parameters": {
+            "billingInterval": "'monthly'|'yearly'"
+          },
+          "response": "Promise<SuccessResponse>"
+        },
+        "getTaskbar": {
+          "parameters": {},
+          "response": "Promise<{ items: TaskbarItem[] }>"
+        },
+        "updateTaskbar": {
+          "parameters": {
+            "items": "TaskbarItem[]"
+          },
+          "response": "Promise<UpdateTaskbarResponse>"
+        }
+      }
+    },
+    "appFiles": {
+      "factory": "client.appFiles.forApp(appId, userId?)",
+      "operations": {
+        "initialize": {
+          "parameters": {},
+          "response": "Promise<void>"
+        },
+        "setUserId": {
+          "parameters": {
+            "userId": "string"
+          },
+          "response": "void"
+        },
+        "listFiles": {
+          "parameters": {
+            "path": "string|string[]|undefined",
+            "pageSize": "number|undefined",
+            "cursor": "string|undefined"
+          },
+          "response": "Promise<ListFilesResponse>"
+        },
+        "ensurePath": {
+          "parameters": {
+            "pathOrParams": "string|string[]|AppEnsurePathParams"
+          },
+          "response": "Promise<string>"
+        },
+        "uploadFile": {
+          "parameters": {
+            "file": "File|Blob",
+            "path": "string|string[]|undefined",
+            "onProgress": "function|undefined"
+          },
+          "response": "Promise<UploadResponse>"
+        }
+      }
+    }
+  },
+  "errors": {
+    "base": {
+      "name": "ControlFileError",
+      "fields": [
+        "message",
+        "code",
+        "statusCode",
+        "originalError"
+      ]
+    },
+    "common": [
+      "AuthenticationError",
+      "ForbiddenError",
+      "NotFoundError",
+      "ValidationError",
+      "QuotaExceededError",
+      "ServerError",
+      "NetworkError"
+    ]
+  }
+}

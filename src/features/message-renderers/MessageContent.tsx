@@ -1,4 +1,6 @@
 import { Message } from "../../lib/types";
+import { getDownloadUrl } from "../../services/controlfileDownload";
+import { useState, useEffect } from "react";
 
 const formatSize = (size: number | null) => {
   if (!size) return "";
@@ -13,19 +15,47 @@ interface Props {
 }
 
 export const MessageContent = ({ message }: Props) => {
-  if (message.type === "image" && message.fileURL) {
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [urlError, setUrlError] = useState(false);
+
+  // Refresh download URL for ControlFile files
+  useEffect(() => {
+    const refreshUrl = async () => {
+      if (message.storagePath && !message.storagePath.startsWith('workspaces/')) {
+        // This is a ControlFile file
+        try {
+          const url = await getDownloadUrl(message.storagePath);
+          setDownloadUrl(url);
+          setUrlError(false);
+        } catch (error) {
+          console.error('Failed to get download URL:', error);
+          setUrlError(true);
+        }
+      } else {
+        // Use existing Firebase Storage URL
+        setDownloadUrl(message.fileURL);
+        setUrlError(false);
+      }
+    };
+
+    refreshUrl();
+  }, [message.storagePath, message.fileURL]);
+
+  const effectiveUrl = downloadUrl || message.fileURL;
+
+  if (message.type === "image" && effectiveUrl) {
     return (
-      <img className="bubble-image" src={message.fileURL} alt={message.fileName ?? "Imagen"} loading="lazy" />
+      <img className="bubble-image" src={effectiveUrl} alt={message.fileName ?? "Imagen"} loading="lazy" />
     );
   }
 
-  if (message.type === "video" && message.fileURL) {
-    return <video className="bubble-video" src={message.fileURL} controls preload="metadata" />;
+  if (message.type === "video" && effectiveUrl) {
+    return <video className="bubble-video" src={effectiveUrl} controls preload="metadata" />;
   }
 
-  if (message.type === "file" && message.fileURL) {
+  if (message.type === "file" && effectiveUrl) {
     return (
-      <a className="file-row" href={message.fileURL} target="_blank" rel="noreferrer">
+      <a className="file-row" href={effectiveUrl} target="_blank" rel="noreferrer">
         <span className="file-icon">DOC</span>
         <span>
           <strong>{message.fileName}</strong>
@@ -35,13 +65,15 @@ export const MessageContent = ({ message }: Props) => {
     );
   }
 
-  if ((message.type === "image" || message.type === "video" || message.type === "file") && !message.fileURL) {
+  if ((message.type === "image" || message.type === "video" || message.type === "file") && !effectiveUrl) {
     return (
       <div className="file-row" aria-live="polite">
         <span className="file-icon">SUB</span>
         <span>
           <strong>{message.fileName}</strong>
-          <small>{message.status === "failed" ? "Fallo de carga" : "Cargando archivo..."}</small>
+          <small>
+            {urlError ? "Error al cargar archivo" : message.status === "failed" ? "Fallo de carga" : "Cargando archivo..."}
+          </small>
         </span>
       </div>
     );
