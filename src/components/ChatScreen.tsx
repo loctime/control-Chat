@@ -7,6 +7,11 @@ import { MessageList } from "./MessageList";
 import { useMessages } from "../hooks/useMessages";
 import { Message, ReplyTarget } from "../lib/types";
 import { applyTheme, getInitialTheme, ThemeMode } from "../features/theme/useTheme";
+import { useWorkspace } from "../hooks/useWorkspace";
+import { useNotes } from "../hooks/useNotes";
+import { useDocuments } from "../hooks/useDocuments";
+import { NotesScreen } from "./NotesScreen";
+import { DocumentsScreen } from "./DocumentsScreen";
 
 interface Props {
   user: User;
@@ -14,9 +19,16 @@ interface Props {
   onClearPendingDropFile: () => void;
 }
 
+type WorkspaceView = "chat" | "notes" | "documents";
+
 export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Props) => {
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const authorName = user.displayName?.trim() || user.email || "Anonimo";
+  const { workspace, workspaceRecord, conversation, loading: workspaceLoading, error: workspaceError } = useWorkspace(user);
+  const authorSnapshot = {
+    displayName: user.displayName?.trim() || user.email || "Anonimo",
+    avatarUrl: user.photoURL ?? null,
+    email: user.email ?? null
+  };
 
   const {
     messages,
@@ -41,12 +53,16 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
     ensureMessageLoaded,
     fromCache,
     hasPendingWrites
-  } = useMessages(user.uid, authorName);
+  } = useMessages(user.uid, workspaceRecord?.id ?? null, conversation?.id ?? null, user.uid, authorSnapshot);
+
+  const notes = useNotes(workspaceRecord?.id ?? workspace?.defaultWorkspaceId ?? null, user.uid);
+  const documents = useDocuments(workspaceRecord?.id ?? workspace?.defaultWorkspaceId ?? null, user.uid);
 
   const [search, setSearch] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [replyToMessage, setReplyToMessage] = useState<ReplyTarget | null>(null);
+  const [view, setView] = useState<WorkspaceView>("chat");
 
   useEffect(() => {
     applyTheme(theme);
@@ -91,7 +107,9 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
     setReplyToMessage({
       id: message.id,
       text: message.text,
-      author: message.author
+      author: message.author,
+      authorId: message.authorId,
+      authorSnapshot: message.authorSnapshot
     });
 
     window.requestAnimationFrame(() => {
@@ -100,6 +118,7 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
   }, []);
 
   const syncLabel = hasPendingWrites ? "Sincronizando cambios..." : fromCache ? "Mostrando datos cacheados" : "";
+  const globalError = workspaceError ?? error;
 
   return (
     <main className="chat-shell">
@@ -110,12 +129,15 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
         onSearchChange={setSearch}
         isDark={theme === "dark"}
         onToggleTheme={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
+        view={view}
+        onViewChange={setView}
+        conversationTitle={conversation?.title ?? workspaceRecord?.title ?? "Preparando tu espacio"}
       />
 
       {isOffline ? <div className="status-banner">Sin conexion. Revisa tu red para sincronizar.</div> : null}
       {!isOffline && syncLabel ? <div className="status-banner">{syncLabel}</div> : null}
 
-      {error ? (
+      {globalError ? (
         <div
           className="error-banner"
           onClick={clearError}
@@ -128,46 +150,72 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
             }
           }}
         >
-          {error}
+          {globalError}
         </div>
       ) : null}
 
-      <MessageList
-        messages={messages}
-        search={search}
-        loading={loading}
-        currentUserId={user.uid}
-        onCopy={copyToClipboard}
-        onDelete={handleDelete}
-        onToggleStar={handleToggleStar}
-        onReply={handleReply}
-        onRetryMessage={handleRetryMessage}
-        onEditMessage={handleEditMessage}
-        onToggleReaction={handleToggleReaction}
-        onEnsureMessageLoaded={ensureMessageLoaded}
-        onLoadMore={loadMore}
-        loadingMore={loadingMore}
-        hasMore={hasMore}
-        uploadsProgress={uploadsProgress}
-      />
+      {view === "chat" ? (
+        <>
+          <MessageList
+            messages={messages}
+            search={search}
+            loading={loading || workspaceLoading}
+            currentUserId={user.uid}
+            onCopy={copyToClipboard}
+            onDelete={handleDelete}
+            onToggleStar={handleToggleStar}
+            onReply={handleReply}
+            onRetryMessage={handleRetryMessage}
+            onEditMessage={handleEditMessage}
+            onToggleReaction={handleToggleReaction}
+            onEnsureMessageLoaded={ensureMessageLoaded}
+            onLoadMore={loadMore}
+            loadingMore={loadingMore}
+            hasMore={hasMore}
+            uploadsProgress={uploadsProgress}
+          />
 
-      <Composer
-        ref={composerRef}
-        onSendText={sendText}
-        onSendFile={sendFile}
-        onRetrySend={retryLastFailedSend}
-        onClearSendError={clearSendError}
-        sending={sending}
-        sendError={sendError}
-        pendingFile={pendingDropFile}
-        onClearPendingFile={() => {
-          clearSendError();
-          onClearPendingDropFile();
-        }}
-        isOffline={isOffline}
-        replyToMessage={replyToMessage}
-        onClearReplyToMessage={() => setReplyToMessage(null)}
-      />
+          <Composer
+            ref={composerRef}
+            onSendText={sendText}
+            onSendFile={sendFile}
+            onRetrySend={retryLastFailedSend}
+            onClearSendError={clearSendError}
+            sending={sending}
+            sendError={sendError}
+            pendingFile={pendingDropFile}
+            onClearPendingFile={() => {
+              clearSendError();
+              onClearPendingDropFile();
+            }}
+            isOffline={isOffline}
+            replyToMessage={replyToMessage}
+            onClearReplyToMessage={() => setReplyToMessage(null)}
+          />
+        </>
+      ) : null}
+
+      {view === "notes" ? (
+        <NotesScreen
+          notes={notes.notes}
+          selectedNote={notes.selectedNote}
+          loading={notes.loading}
+          onSelect={notes.setSelectedNoteId}
+          onCreate={notes.createNote}
+          onSave={notes.saveNote}
+        />
+      ) : null}
+
+      {view === "documents" ? (
+        <DocumentsScreen
+          documents={documents.documents}
+          selectedDocument={documents.selectedDocument}
+          loading={documents.loading}
+          onSelect={documents.setSelectedDocumentId}
+          onCreate={documents.createDocument}
+          onSave={documents.saveDocument}
+        />
+      ) : null}
     </main>
   );
 };

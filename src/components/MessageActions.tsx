@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Copy, Reply, Check } from "lucide-react";
 
 interface Props {
   text?: string;
@@ -16,37 +15,21 @@ export const MessageActions = ({ text = "", onReply }: Props) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1000);
+      window.setTimeout(() => setCopied(false), 1000);
     } catch (err) {
-      console.error("Failed to copy text: ", err);
+      console.error("Failed to copy text:", err);
     }
   };
 
   return (
     <div className="message-actions">
       {canCopy ? (
-        <button
-          type="button"
-          className="action-btn"
-          onClick={handleCopy}
-          title="Copiar"
-          aria-label="Copiar mensaje"
-        >
-          {copied ? (
-            <Check size={16} className="text-muted-foreground" />
-          ) : (
-            <Copy size={16} className="text-muted-foreground" />
-          )}
+        <button type="button" className="action-btn" onClick={handleCopy} title="Copiar" aria-label="Copiar mensaje">
+          {copied ? "Copiado" : "Copiar"}
         </button>
       ) : null}
-      <button
-        type="button"
-        className="action-btn"
-        onClick={onReply}
-        title="Responder"
-        aria-label="Responder mensaje"
-      >
-        <Reply size={16} className="text-muted-foreground" />
+      <button type="button" className="action-btn" onClick={onReply} title="Responder" aria-label="Responder mensaje">
+        Responder
       </button>
     </div>
   );

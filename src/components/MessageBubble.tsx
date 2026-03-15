@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type MouseEvent, type TouchEvent } from "react";
+import { memo, useEffect, useMemo, useState, type MouseEvent, type TouchEvent } from "react";
 import { Message } from "../lib/types";
 import { MessageContextMenu } from "../features/message-actions/MessageContextMenu";
 import { MessageContent } from "../features/message-renderers/MessageContent";
@@ -27,7 +27,7 @@ interface Props {
   isHighlighted?: boolean;
 }
 
-const REACTION_CHOICES = ["??", "??", "??"];
+const REACTION_CHOICES = ["👍", "💡", "🧠"];
 
 const MessageBubbleBase = ({
   message,
@@ -88,6 +88,10 @@ const MessageBubbleBase = ({
   const statusLabel = message.status === "failed" ? "Fallo" : message.status === "sending" ? "Enviando" : "Enviado";
 
   const reactions = Object.entries(message.reactions ?? {}).filter(([, users]) => users.length > 0);
+
+  useEffect(() => {
+    setDraftText(message.text);
+  }, [message.text]);
 
   const saveEdit = async () => {
     if (isSavingEdit) return;

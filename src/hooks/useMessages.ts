@@ -14,7 +14,7 @@ import {
   toggleMessageStar,
   type LatestMessagesPayload
 } from "../lib/messages";
-import { Message, ReplyTarget } from "../lib/types";
+import { AuthorSnapshot, Message, ReplyTarget } from "../lib/types";
 
 type FailedSend =
   | { kind: "text"; messageId: string; text: string; replyTo: ReplyTarget | null }
@@ -28,9 +28,7 @@ const toEpoch = (message: Message) => {
 
 const mergeById = (base: Message[], incoming: Message[]) => {
   const map = new Map(base.map((msg) => [msg.id, msg]));
-  for (const next of incoming) {
-    map.set(next.id, next);
-  }
+  for (const next of incoming) map.set(next.id, next);
   return [...map.values()].sort((a, b) => toEpoch(a) - toEpoch(b));
 };
 
@@ -40,7 +38,13 @@ const detectFileMessageType = (file: File): "image" | "video" | "file" => {
   return "file";
 };
 
-export const useMessages = (uid: string | null, author: string) => {
+export const useMessages = (
+  uid: string | null,
+  workspaceId: string | null,
+  conversationId: string | null,
+  authorId: string,
+  authorSnapshot: AuthorSnapshot
+) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,13 +67,17 @@ export const useMessages = (uid: string | null, author: string) => {
 
   const mergeSnapshotPayload = useCallback((payload: LatestMessagesPayload) => {
     setMessages((prev) => {
-      const pendingLocals = prev.filter((msg) => (msg.status === "sending" || msg.status === "failed") && !payload.messages.some((incoming) => incoming.id === msg.id));
+      const pendingLocals = prev.filter(
+        (msg) =>
+          (msg.status === "sending" || msg.status === "failed") &&
+          !payload.messages.some((incoming) => incoming.id === msg.id)
+      );
       return [...payload.messages, ...pendingLocals].sort((a, b) => toEpoch(a) - toEpoch(b));
     });
   }, []);
 
   useEffect(() => {
-    if (!uid) return;
+    if (!workspaceId || !conversationId) return;
 
     initialLoadedRef.current = false;
     setMessages([]);
@@ -83,7 +91,8 @@ export const useMessages = (uid: string | null, author: string) => {
     setHasPendingWrites(false);
 
     const unsub = subscribeToLatestMessages(
-      uid,
+      workspaceId,
+      conversationId,
       (payload) => {
         setFromCache(payload.fromCache);
         setHasPendingWrites(payload.hasPendingWrites);
@@ -112,10 +121,8 @@ export const useMessages = (uid: string | null, author: string) => {
       }
     );
 
-    return () => {
-      unsub();
-    };
-  }, [mergeSnapshotPayload, uid]);
+    return () => unsub();
+  }, [workspaceId, conversationId, mergeSnapshotPayload]);
 
   const setLocalStatus = useCallback((messageId: string, status: Message["status"]) => {
     setMessages((prev) => prev.map((msg) => (msg.id === messageId ? { ...msg, status } : msg)));
@@ -125,7 +132,13 @@ export const useMessages = (uid: string | null, author: string) => {
     (messageId: string, text: string, replyTo: ReplyTarget | null) => {
       const optimisticMessage: Message = {
         id: messageId,
+        workspaceId: workspaceId ?? "",
+        conversationId: conversationId ?? "",
+        threadId: null,
+        threadRootMessageId: null,
+        kind: "text",
         type: /^https?:\/\/.+/i.test(text.trim()) ? "link" : "text",
+        body: text,
         text,
         fileURL: null,
         fileName: null,
@@ -137,32 +150,57 @@ export const useMessages = (uid: string | null, author: string) => {
         editedAt: null,
         deletedAt: null,
         device: window.matchMedia("(max-width: 768px)").matches ? "mobile" : "desktop",
+        originDevice: window.matchMedia("(max-width: 768px)").matches ? "mobile" : "desktop",
         status: "sending",
+        ingestState: "sending",
         clientId: messageId,
         starred: false,
-        author,
+        author: authorSnapshot.displayName,
+        authorId,
+        authorSnapshot,
         reactions: {},
+        reactionCounts: {},
         replyToId: replyTo?.id ?? null,
         replyToText: replyTo?.text ?? null,
-        replyToAuthor: replyTo?.author ?? null
+        replyToAuthor: replyTo?.author ?? null,
+        replyToMessageId: replyTo?.id ?? null,
+        replyPreview: replyTo
+          ? {
+              messageId: replyTo.id,
+              text: replyTo.text,
+              authorId: replyTo.authorId ?? null,
+              authorSnapshot: replyTo.authorSnapshot ?? { displayName: replyTo.author, avatarUrl: null }
+            }
+          : null,
+        relatedEntityRefs: [],
+        attachmentIds: [],
+        visibility: "visible",
+        source: "user",
+        contentVersion: 1
       };
 
       setMessages((prev) => {
         const exists = prev.some((msg) => msg.id === messageId);
         if (exists) {
-          return prev.map((msg) => (msg.id === messageId ? { ...msg, text, status: "sending" } : msg));
+          return prev.map((msg) => (msg.id === messageId ? { ...msg, text, body: text, status: "sending" } : msg));
         }
         return mergeById(prev, [optimisticMessage]);
       });
     },
-    [author]
+    [authorId, authorSnapshot, conversationId, workspaceId]
   );
 
   const insertOptimisticFile = useCallback(
     (messageId: string, file: File, caption: string, replyTo: ReplyTarget | null) => {
       const optimisticMessage: Message = {
         id: messageId,
+        workspaceId: workspaceId ?? "",
+        conversationId: conversationId ?? "",
+        threadId: null,
+        threadRootMessageId: null,
+        kind: "attachment",
         type: detectFileMessageType(file),
+        body: caption,
         text: caption,
         fileURL: "",
         fileName: file.name,
@@ -174,31 +212,49 @@ export const useMessages = (uid: string | null, author: string) => {
         editedAt: null,
         deletedAt: null,
         device: window.matchMedia("(max-width: 768px)").matches ? "mobile" : "desktop",
+        originDevice: window.matchMedia("(max-width: 768px)").matches ? "mobile" : "desktop",
         status: "sending",
+        ingestState: "sending",
         clientId: messageId,
         starred: false,
-        author,
+        author: authorSnapshot.displayName,
+        authorId,
+        authorSnapshot,
         reactions: {},
+        reactionCounts: {},
         replyToId: replyTo?.id ?? null,
         replyToText: replyTo?.text ?? null,
-        replyToAuthor: replyTo?.author ?? null
+        replyToAuthor: replyTo?.author ?? null,
+        replyToMessageId: replyTo?.id ?? null,
+        replyPreview: replyTo
+          ? {
+              messageId: replyTo.id,
+              text: replyTo.text,
+              authorId: replyTo.authorId ?? null,
+              authorSnapshot: replyTo.authorSnapshot ?? { displayName: replyTo.author, avatarUrl: null }
+            }
+          : null,
+        relatedEntityRefs: [],
+        attachmentIds: [],
+        visibility: "visible",
+        source: "user",
+        contentVersion: 1
       };
 
       setMessages((prev) => {
         const exists = prev.some((msg) => msg.id === messageId);
         if (exists) {
-          return prev.map((msg) => (msg.id === messageId ? { ...msg, text: caption, status: "sending" } : msg));
+          return prev.map((msg) => (msg.id === messageId ? { ...msg, text: caption, body: caption, status: "sending" } : msg));
         }
         return mergeById(prev, [optimisticMessage]);
       });
     },
-    [author]
+    [authorId, authorSnapshot, conversationId, workspaceId]
   );
 
   const sendText = useCallback(
     async (text: string, replyTo: ReplyTarget | null = null, providedMessageId?: string) => {
-      if (!uid) return false;
-
+      if (!workspaceId || !conversationId) return false;
       const messageId = providedMessageId ?? buildClientId();
 
       setSending(true);
@@ -206,7 +262,7 @@ export const useMessages = (uid: string | null, author: string) => {
       insertOptimisticText(messageId, text, replyTo);
 
       try {
-        await sendTextMessage(uid, text, author, replyTo, messageId);
+        await sendTextMessage(workspaceId, conversationId, text, authorId, authorSnapshot, replyTo, messageId);
         setFailedSends((prev) => {
           const next = { ...prev };
           delete next[messageId];
@@ -228,13 +284,12 @@ export const useMessages = (uid: string | null, author: string) => {
         setSending(false);
       }
     },
-    [author, insertOptimisticText, setLocalStatus, uid]
+    [authorId, authorSnapshot, conversationId, insertOptimisticText, setLocalStatus, workspaceId]
   );
 
   const sendFile = useCallback(
     async (file: File, caption = "", replyTo: ReplyTarget | null = null, providedMessageId?: string) => {
-      if (!uid) return false;
-
+      if (!uid || !workspaceId || !conversationId) return false;
       const messageId = providedMessageId ?? buildClientId();
 
       setSending(true);
@@ -246,12 +301,23 @@ export const useMessages = (uid: string | null, author: string) => {
       }));
 
       try {
-        await sendFileMessageWithProgress(uid, file, caption, author, replyTo, (value) => {
-          setUploadsProgress((prev) => ({
-            ...prev,
-            [messageId]: { name: file.name, progress: value }
-          }));
-        }, messageId);
+        await sendFileMessageWithProgress(
+          workspaceId,
+          conversationId,
+          uid,
+          file,
+          caption,
+          authorId,
+          authorSnapshot,
+          replyTo,
+          (value) => {
+            setUploadsProgress((prev) => ({
+              ...prev,
+              [messageId]: { name: file.name, progress: value }
+            }));
+          },
+          messageId
+        );
         setFailedSends((prev) => {
           const next = { ...prev };
           delete next[messageId];
@@ -278,18 +344,14 @@ export const useMessages = (uid: string | null, author: string) => {
         });
       }
     },
-    [author, insertOptimisticFile, setLocalStatus, uid]
+    [authorId, authorSnapshot, conversationId, insertOptimisticFile, setLocalStatus, uid, workspaceId]
   );
 
   const retryMessage = useCallback(
     async (messageId: string) => {
       const failed = failedSends[messageId];
       if (!failed || sending) return false;
-
-      if (failed.kind === "text") {
-        return sendText(failed.text, failed.replyTo, failed.messageId);
-      }
-
+      if (failed.kind === "text") return sendText(failed.text, failed.replyTo, failed.messageId);
       return sendFile(failed.file, failed.caption, failed.replyTo, failed.messageId);
     },
     [failedSends, sendFile, sendText, sending]
@@ -303,12 +365,11 @@ export const useMessages = (uid: string | null, author: string) => {
   }, [failedSends, retryMessage]);
 
   const loadMore = async () => {
-    if (!uid || !oldestDoc || loadingMore || reachedEnd) return;
+    if (!workspaceId || !conversationId || !oldestDoc || loadingMore || reachedEnd) return;
     setLoadingMore(true);
 
     try {
-      const older = await fetchOlderMessages(uid, oldestDoc);
-
+      const older = await fetchOlderMessages(workspaceId, conversationId, oldestDoc);
       if (older.docs.length === 0) {
         setReachedEnd(true);
       } else {
@@ -325,10 +386,10 @@ export const useMessages = (uid: string | null, author: string) => {
 
   const ensureMessageLoaded = useCallback(
     async (messageId: string) => {
-      if (!uid) return false;
+      if (!workspaceId || !conversationId) return false;
       if (messagesRef.current.some((msg) => msg.id === messageId)) return true;
 
-      const direct = await fetchMessageById(uid, messageId);
+      const direct = await fetchMessageById(workspaceId, conversationId, messageId);
       if (direct) {
         setMessages((prev) => mergeById(prev, [direct]));
         return true;
@@ -338,8 +399,7 @@ export const useMessages = (uid: string | null, author: string) => {
       let done = reachedEnd;
 
       while (cursor && !done) {
-        const older = await fetchOlderMessages(uid, cursor);
-
+        const older = await fetchOlderMessages(workspaceId, conversationId, cursor);
         if (older.docs.length === 0) {
           done = true;
           setReachedEnd(true);
@@ -350,13 +410,9 @@ export const useMessages = (uid: string | null, author: string) => {
         cursor = olderLastDoc;
         setOldestDoc(olderLastDoc);
         setReachedEnd(older.docs.length < older.pageSize);
-
         setMessages((prev) => mergeById(prev, older.messages));
 
-        if (older.messages.some((msg) => msg.id === messageId)) {
-          return true;
-        }
-
+        if (older.messages.some((msg) => msg.id === messageId)) return true;
         if (older.docs.length < older.pageSize) {
           done = true;
           setReachedEnd(true);
@@ -365,24 +421,22 @@ export const useMessages = (uid: string | null, author: string) => {
 
       return false;
     },
-    [oldestDoc, reachedEnd, uid]
+    [workspaceId, conversationId, oldestDoc, reachedEnd]
   );
 
   const toggleStar = async (messageId: string, starred: boolean) => {
-    if (!uid) return;
-
+    if (!workspaceId || !conversationId) return;
     try {
-      await toggleMessageStar(uid, messageId, starred);
+      await toggleMessageStar(workspaceId, conversationId, messageId, starred);
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : "No se pudo actualizar el favorito.");
     }
   };
 
   const editMessage = async (messageId: string, nextText: string) => {
-    if (!uid) return false;
-
+    if (!workspaceId || !conversationId) return false;
     try {
-      await editMessageText(uid, messageId, nextText);
+      await editMessageText(workspaceId, conversationId, messageId, nextText);
       return true;
     } catch (editError) {
       setError(editError instanceof Error ? editError.message : "No se pudo editar el mensaje.");
@@ -391,27 +445,22 @@ export const useMessages = (uid: string | null, author: string) => {
   };
 
   const toggleReaction = async (messageId: string, emoji: string) => {
-    if (!uid) return;
-
+    if (!workspaceId || !conversationId || !uid) return;
     try {
-      await toggleMessageReaction(uid, messageId, emoji, uid);
+      await toggleMessageReaction(workspaceId, conversationId, messageId, emoji, uid);
     } catch (reactionError) {
       setError(reactionError instanceof Error ? reactionError.message : "No se pudo reaccionar al mensaje.");
     }
   };
 
   const deleteMessage = async (message: Message) => {
-    if (!uid) return;
-
+    if (!workspaceId || !conversationId) return;
     try {
-      await deleteMessageAndAsset(uid, message);
+      await deleteMessageAndAsset(workspaceId, conversationId, message);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "No se pudo eliminar el mensaje.");
     }
   };
-
-  const clearError = () => setError(null);
-  const clearSendError = () => setSendError(null);
 
   return {
     messages,
@@ -435,8 +484,7 @@ export const useMessages = (uid: string | null, author: string) => {
     editMessage,
     toggleReaction,
     deleteMessage,
-    clearError,
-    clearSendError
+    clearError: () => setError(null),
+    clearSendError: () => setSendError(null)
   };
 };
-

@@ -5,18 +5,41 @@ service firebase.storage {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function workspaceDoc(workspaceId) {
+      return firestore.get(/databases/(default)/documents/workspaces/$(workspaceId));
+    }
+
+    function isWorkspaceOwner(workspaceId) {
+      return request.auth != null && workspaceDoc(workspaceId).data.ownerId == request.auth.uid;
+    }
+
+    function isWorkspaceMember(workspaceId) {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid));
+    }
+
+    function canAccessWorkspaceAttachment(workspaceId) {
+      return isWorkspaceOwner(workspaceId) || isWorkspaceMember(workspaceId);
+    }
+
     function validContentType() {
       return request.resource.contentType.matches('image/.*')
         || request.resource.contentType.matches('video/.*')
         || request.resource.contentType in ['application/pdf', 'text/plain'];
     }
 
-    match /user-files/{userId}/{messageId}/{fileName} {
-      allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId)
+    match /workspaces/{workspaceId}/attachments/{messageId}/{fileName} {
+      allow read: if canAccessWorkspaceAttachment(workspaceId);
+      allow create, update: if canAccessWorkspaceAttachment(workspaceId)
         && request.resource.size > 0
         && request.resource.size <= 20 * 1024 * 1024
         && validContentType();
+      allow delete: if canAccessWorkspaceAttachment(workspaceId);
+    }
+
+    match /user-files/{userId}/{messageId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow create, update: if false;
       allow delete: if isOwner(userId);
     }
   }

@@ -9,112 +9,218 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function hasOptionalString(data, key) {
-      return !data.keys().hasAny([key]) || data[key] == null || data[key] is string;
+    function workspaceDoc(workspaceId) {
+      return get(/databases/$(database)/documents/workspaces/$(workspaceId));
     }
 
-    function hasOptionalTimestamp(data, key) {
-      return !data.keys().hasAny([key]) || data[key] == null || data[key] is timestamp;
+    function userProfileDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId));
     }
 
-    function validReactions(data) {
-      return !data.keys().hasAny(['reactions']) || data.reactions is map;
+    function isWorkspaceOwner(workspaceId) {
+      return isSignedIn() && workspaceDoc(workspaceId).data.ownerId == request.auth.uid;
     }
 
-    function validCommonMessageFields(data) {
-      return data.keys().hasOnly([
-          'type',
-          'text',
-          'fileURL',
-          'fileName',
-          'fileType',
-          'storagePath',
-          'createdAt',
-          'updatedAt',
-          'editedAt',
-          'deletedAt',
-          'device',
-          'size',
-          'starred',
-          'status',
-          'clientId',
-          'author',
-          'reactions',
-          'replyToId',
-          'replyToText',
-          'replyToAuthor'
-        ])
-        && data.type in ['text', 'link', 'image', 'video', 'file']
-        && data.device in ['mobile', 'desktop']
-        && data.starred is bool
-        && data.createdAt is timestamp
-        && data.updatedAt is timestamp
-        && hasOptionalTimestamp(data, 'editedAt')
-        && hasOptionalTimestamp(data, 'deletedAt')
-        && data.text is string
-        && data.author is string
-        && data.author.size() > 0
-        && hasOptionalString(data, 'clientId')
-        && (!data.keys().hasAny(['status']) || data.status in ['sending', 'sent', 'failed'])
-        && hasOptionalString(data, 'replyToId')
-        && hasOptionalString(data, 'replyToText')
-        && hasOptionalString(data, 'replyToAuthor')
-        && validReactions(data);
+    function isWorkspaceMember(workspaceId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid));
     }
 
-    function validTextLikeMessage(data) {
-      return data.type in ['text', 'link']
-        && data.fileURL == null
-        && data.fileName == null
-        && data.fileType == null
-        && data.storagePath == null
-        && data.size == null
-        && data.text.size() > 0
-        && data.text.size() <= 2000
-        && (data.type != 'link' || data.text.matches('^https?://.+'));
+    function workspaceMemberDoc(workspaceId, userId) {
+      return get(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(userId));
     }
 
-    function validFileLikeMessage(data) {
-      return data.type in ['image', 'video', 'file']
-        && data.fileURL is string
-        && data.fileURL.size() > 0
-        && data.fileName is string
-        && data.fileName.size() > 0
-        && (data.fileType == null || data.fileType is string)
-        && data.storagePath is string
-        && data.storagePath.size() > 0
-        && (data.size is int || data.size is float)
-        && data.size > 0
-        && data.text.size() <= 2000;
+    function isWorkspaceAdmin(workspaceId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid))
+        && workspaceMemberDoc(workspaceId, request.auth.uid).data.role == "admin";
     }
 
-    function validMessageDocument(data) {
-      return validCommonMessageFields(data) && (validTextLikeMessage(data) || validFileLikeMessage(data));
+    function isWorkspaceManager(workspaceId) {
+      return isWorkspaceOwner(workspaceId) || isWorkspaceAdmin(workspaceId);
+    }
+
+    function validWorkspaceCreate(workspaceId) {
+      return isSignedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && (!("id" in request.resource.data) || request.resource.data.id == workspaceId);
+    }
+
+    function validWorkspaceUpdate(workspaceId) {
+      return isWorkspaceOwner(workspaceId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.ownerId == request.auth.uid;
+    }
+
+    function validMembershipCreate(workspaceId, userId) {
+      return isWorkspaceManager(workspaceId)
+        && request.resource.data.workspaceId == workspaceId
+        && request.resource.data.userId == userId
+        && request.resource.data.role in ["owner", "admin", "member"];
+    }
+
+    function validMembershipUpdate(workspaceId, userId) {
+      return isWorkspaceManager(workspaceId)
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.role in ["owner", "admin", "member"];
+    }
+
+    function validWorkspaceAttachmentCreate(workspaceId) {
+      return isWorkspaceMember(workspaceId)
+        && request.resource.data.workspaceId == workspaceId
+        && request.resource.data.ownerId == request.auth.uid;
+    }
+
+    function validWorkspaceAttachmentUpdate(workspaceId) {
+      return isWorkspaceMember(workspaceId)
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    function legacyMigrationPending(userId) {
+      return isOwner(userId)
+        && (
+          !exists(/databases/$(database)/documents/users/$(userId))
+          || !( "migrationVersion" in userProfileDoc(userId).data )
+          || userProfileDoc(userId).data.migrationVersion < 2
+        );
+    }
+
+    function noteOwnerFromRequest() {
+      return isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+    }
+
+    function noteOwnerFromResource() {
+      return isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /preferences/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /notifications/{notificationId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    match /workspaces/{workspaceId} {
+      allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      allow create: if validWorkspaceCreate(workspaceId);
+      allow update: if validWorkspaceUpdate(workspaceId);
+      allow delete: if isWorkspaceOwner(workspaceId);
+
+      match /members/{userId} {
+        allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+        allow create: if validMembershipCreate(workspaceId, userId);
+        allow update: if validMembershipUpdate(workspaceId, userId);
+        allow delete: if isWorkspaceManager(workspaceId) && !(
+          resource.data.userId == workspaceDoc(workspaceId).data.ownerId && !isWorkspaceOwner(workspaceId)
+        );
+      }
+
+      match /conversations/{conversationId} {
+        allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+        allow create, update, delete: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+
+        match /members/{userId} {
+          allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+          allow create, update, delete: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+        }
+
+        match /messages/{messageId} {
+          allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+          allow create, update, delete: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+
+          match /reactions/{reactionId} {
+            allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+            allow create, update, delete: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+          }
+        }
+
+        match /threads/{threadId} {
+          allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+        }
+
+        match /pinned/{pinId} {
+          allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+        }
+      }
+
+      match /attachments/{attachmentId} {
+        allow read: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+        allow create: if validWorkspaceAttachmentCreate(workspaceId);
+        allow update: if validWorkspaceAttachmentUpdate(workspaceId);
+        allow delete: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /notes/{noteId} {
+        allow read, write: if noteOwnerFromResource() || noteOwnerFromRequest();
+
+        match /links/{linkId} {
+          allow read, write: if noteOwnerFromResource() || noteOwnerFromRequest();
+        }
+      }
+
+      match /documents/{documentId} {
+        allow read, write: if noteOwnerFromResource() || noteOwnerFromRequest();
+
+        match /blocks/{blockId} {
+          allow read, write: if noteOwnerFromResource() || noteOwnerFromRequest();
+        }
+      }
+
+      match /links/{linkId} {
+        allow read, write: if noteOwnerFromResource() || noteOwnerFromRequest();
+      }
+
+      match /tags/{tagId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /graphNodes/{nodeId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /graphEdges/{edgeId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /notifications/{notificationId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /summaries/{summaryId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /embeddings/{embeddingId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /jobs/{jobId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /events/{eventId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
+
+      match /searchIndex/{indexId} {
+        allow read, write: if isWorkspaceMember(workspaceId) || isWorkspaceOwner(workspaceId);
+      }
     }
 
     match /apps/control-chat/users/{userId} {
-      allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId);
-      allow delete: if false;
+      allow read: if legacyMigrationPending(userId);
+      allow write: if false;
 
       match /messages/{messageId} {
-        allow read: if isOwner(userId);
-
-        allow create: if isOwner(userId)
-          && validMessageDocument(request.resource.data);
-
-        allow update: if isOwner(userId)
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'starred',
-              'status',
-              'text',
-              'editedAt',
-              'updatedAt',
-              'reactions'
-            ])
-          && validMessageDocument(request.resource.data);
-
-        allow delete: if isOwner(userId);
+        allow read: if legacyMigrationPending(userId);
+        allow write: if false;
       }
     }
   }

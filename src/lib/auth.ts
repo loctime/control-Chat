@@ -8,29 +8,11 @@ import {
   signInWithRedirect,
   signOut
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
-import { auth, db, googleProvider } from "./firebase";
-import { appPath } from "./paths";
+import { auth, googleProvider } from "./firebase";
+import { ensureUserWorkspace } from "../infrastructure/firebase/workspace";
 
 export const watchUser = (cb: (user: User | null) => void) => onAuthStateChanged(auth, cb);
-
-export const ensureUserProfile = async (user: User) => {
-  const userRef = doc(db, ...appPath, "users", user.uid);
-  const existing = await getDoc(userRef);
-
-  await setDoc(
-    userRef,
-    {
-      uid: user.uid,
-      email: user.email ?? null,
-      name: user.displayName ?? "Usuario",
-      avatar: user.photoURL ?? null,
-      updatedAt: serverTimestamp(),
-      createdAt: existing.exists() ? existing.data().createdAt ?? serverTimestamp() : serverTimestamp()
-    },
-    { merge: true }
-  );
-};
+export const ensureUserProfile = async (user: User) => ensureUserWorkspace(user);
 
 export const completeRedirectSignIn = async () => {
   const result = await getRedirectResult(auth);
@@ -39,10 +21,8 @@ export const completeRedirectSignIn = async () => {
 
 export const loginWithGoogle = async () => {
   googleProvider.setCustomParameters({ prompt: "select_account" });
-  
-  // Use redirect for mobile, popup for desktop.
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  
+
   if (isMobile) {
     await signInWithRedirect(auth, googleProvider);
   } else {
