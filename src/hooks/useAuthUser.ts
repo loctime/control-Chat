@@ -1,22 +1,23 @@
 import { useEffect, useState } from "react";
 import { User } from "firebase/auth";
+import { auth } from "../lib/firebase";
 import { completeRedirectSignIn, watchUser } from "../lib/auth";
 
 export const useAuthUser = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(auth.currentUser);
+  const [loading, setLoading] = useState(auth.currentUser === null);
 
   useEffect(() => {
-    let unsub: (() => void) | undefined;
-    completeRedirectSignIn()
-      .catch(() => {})
-      .then(() => {
-        unsub = watchUser((nextUser) => {
-          setUser(nextUser);
-          setLoading(false);
-        });
-      });
-    return () => unsub?.();
+    // Register auth listener immediately — no need to wait for redirect resolution
+    const unsub = watchUser((nextUser) => {
+      setUser(nextUser);
+      setLoading(false);
+    });
+
+    // Handle redirect sign-in in parallel without blocking the listener
+    completeRedirectSignIn().catch(() => {});
+
+    return () => unsub();
   }, []);
 
   return { user, loading };

@@ -97,10 +97,17 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
       }
 
       if (!text.trim()) return;
-      const sent = await onSendText(text, replyToMessage);
-      if (!sent) return;
+
+      // Clear immediately for instant feedback — restore on error
+      const textToSend = text;
+      const replyTo = replyToMessage;
       setText("");
       onClearReplyToMessage();
+
+      const sent = await onSendText(textToSend, replyTo);
+      if (!sent) {
+        setText(textToSend);
+      }
     };
 
     return (

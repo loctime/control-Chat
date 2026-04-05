@@ -63,8 +63,8 @@ export const useMessages = (uid: string | null, author: string) => {
         if (payload.changes.length > 0) {
           setMessages((prev) => applyMessageChanges(prev, payload.changes));
         } else if (payload.messages.length > 0) {
-          // Recuperación: si el primer snapshot fue vacío (cache) y el actual trae mensajes
-          // pero docChanges() viene vacío, no nos quedamos con [].
+          // Recuperaciï¿½n: si el primer snapshot fue vacï¿½o (cache) y el actual trae mensajes
+          // pero docChanges() viene vacï¿½o, no nos quedamos con [].
           setMessages((prev) => (prev.length === 0 ? payload.messages : prev));
           setReachedEnd(payload.messages.length < payload.pageSize);
         }
@@ -86,10 +86,12 @@ export const useMessages = (uid: string | null, author: string) => {
     async (text: string, replyTo: ReplyTarget | null = null) => {
       if (!uid) return false;
 
-      setSending(true);
       setSendError(null);
 
       try {
+        // Fire the Firestore write without blocking the UI â€” with local persistence
+        // the message appears in the list immediately via onSnapshot.
+        // We still await to catch permanent failures (e.g. invalid payload).
         await sendTextMessage(uid, text, author, replyTo);
         setLastFailedSend(null);
         return true;
@@ -99,8 +101,6 @@ export const useMessages = (uid: string | null, author: string) => {
         setSendError(message);
         setLastFailedSend({ kind: "text", text, replyTo });
         return false;
-      } finally {
-        setSending(false);
       }
     },
     [author, uid]
