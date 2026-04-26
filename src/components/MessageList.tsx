@@ -15,7 +15,6 @@ interface Props {
   onLoadMore: () => void;
   loadingMore: boolean;
   hasMore: boolean;
-  uploadsProgress: Record<string, { name: string; progress: number }>;
 }
 
 const dateLabel = (seconds: number | undefined) => {
@@ -37,8 +36,7 @@ export const MessageList = ({
   onReply,
   onLoadMore,
   loadingMore,
-  hasMore,
-  uploadsProgress
+  hasMore
 }: Props) => {
   const listRef = useRef<VirtuosoHandle | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -47,12 +45,7 @@ export const MessageList = ({
 
   const normalizedSearch = search.toLowerCase();
   const filtered = useMemo(
-    () =>
-      messages.filter(
-        (msg) =>
-          msg.text.toLowerCase().includes(normalizedSearch) ||
-          (msg.fileName ?? "").toLowerCase().includes(normalizedSearch)
-      ),
+    () => messages.filter((msg) => msg.text.toLowerCase().includes(normalizedSearch)),
     [messages, normalizedSearch]
   );
 
@@ -91,17 +84,11 @@ export const MessageList = ({
     previousCount.current = messages.length;
   }, [messages.length, filtered.length, isAtBottom]);
 
-  useEffect(() => {
-    if (isAtBottom && Object.keys(uploadsProgress).length > 0) {
-      listRef.current?.scrollToIndex({ index: Math.max(filtered.length - 1, 0), behavior: "smooth" });
-    }
-  }, [filtered.length, isAtBottom, uploadsProgress]);
-
   if (loading) {
     return <div className="empty-state">Cargando mensajes...</div>;
   }
 
-  if (!filtered.length && Object.keys(uploadsProgress).length === 0) {
+  if (!filtered.length) {
     return (
       <div className="empty-state">
         {search ? "Sin resultados en mensajes cargados." : "No hay mensajes. Escribi tu primera nota."}
@@ -139,21 +126,6 @@ export const MessageList = ({
         data={filtered}
         atBottomThreshold={80}
         atBottomStateChange={setIsAtBottom}
-        components={{
-          Footer: () => (
-            <>
-              {Object.entries(uploadsProgress).map(([id, item]) => (
-                <div key={id} className="upload-item">
-                  <p>{item.name}</p>
-                  <div className="upload-track">
-                    <span style={{ width: `${item.progress}%` }} />
-                  </div>
-                  <small>{item.progress}%</small>
-                </div>
-              ))}
-            </>
-          )
-        }}
         itemContent={(index: number, message: Message) => {
           const previous = index > 0 ? filtered[index - 1] : null;
           const currentDate = dateLabel(message.createdAt?.seconds);

@@ -2,31 +2,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type DocumentData, type QueryDocumentSnapshot } from "firebase/firestore";
 import {
   applyMessageChanges,
-  deleteMessageAndAsset,
+  deleteMessage as deleteMessageDoc,
   fetchOlderMessages,
-  sendFileMessageWithProgress,
   sendTextMessage,
   subscribeToLatestMessages,
   toggleMessageStar
 } from "../lib/messages";
 import { loadCachedMessages, saveCachedMessages } from "../lib/messageCache";
 import { Message, ReplyTarget } from "../lib/types";
-import { buildUploadId } from "../features/uploads/uploadProgress";
 
-type FailedSend =
-  | { kind: "text"; text: string; replyTo: ReplyTarget | null }
-  | { kind: "file"; file: File; caption: string; replyTo: ReplyTarget | null };
+interface FailedSend {
+  text: string;
+  replyTo: ReplyTarget | null;
+}
 
 export const useMessages = (uid: string | null, author: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [oldestDoc, setOldestDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [reachedEnd, setReachedEnd] = useState(false);
-  const [uploadsProgress, setUploadsProgress] = useState<Record<string, { name: string; progress: number }>>({});
   const [lastFailedSend, setLastFailedSend] = useState<FailedSend | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [hasPendingWrites, setHasPendingWrites] = useState(false);
@@ -76,8 +73,8 @@ export const useMessages = (uid: string | null, author: string) => {
             return next;
           });
         } else if (payload.messages.length > 0) {
-          // Recuperacion: si el primer snapshot fue vacio (cache) y el actual trae mensajes
-          // pero docChanges() viene vacio, no nos quedamos con [].
+          // Recuperacion: si el primer snapshot fue vacio (cache) y el actual trae
+          // mensajes pero docChanges() viene vacio, no nos quedamos con [].
           setMessages((prev) => {
             if (prev.length === 0) {
               saveCachedMessages(uid, payload.messages);
@@ -108,9 +105,6 @@ export const useMessages = (uid: string | null, author: string) => {
       setSendError(null);
 
       try {
-        // Fire the Firestore write without blocking the UI — with local persistence
-        // the message appears in the list immediately via onSnapshot.
-        // We still await to catch permanent failures (e.g. invalid payload).
         await sendTextMessage(uid, text, author, replyTo);
         setLastFailedSend(null);
         return true;
@@ -118,61 +112,17 @@ export const useMessages = (uid: string | null, author: string) => {
         const message = sendTextError instanceof Error ? sendTextError.message : "No se pudo enviar el mensaje.";
         setError(message);
         setSendError(message);
-        setLastFailedSend({ kind: "text", text, replyTo });
+        setLastFailedSend({ text, replyTo });
         return false;
-      }
-    },
-    [author, uid]
-  );
-
-  const sendFile = useCallback(
-    async (file: File, caption = "", replyTo: ReplyTarget | null = null) => {
-      if (!uid) return false;
-
-      const uploadId = buildUploadId();
-      setSending(true);
-      setSendError(null);
-      setUploadsProgress((prev) => ({
-        ...prev,
-        [uploadId]: { name: file.name, progress: 0 }
-      }));
-
-      try {
-        await sendFileMessageWithProgress(uid, file, caption, author, replyTo, (value) => {
-          setUploadsProgress((prev) => ({
-            ...prev,
-            [uploadId]: { name: file.name, progress: value }
-          }));
-        });
-        setLastFailedSend(null);
-        return true;
-      } catch (sendFileError) {
-        const message = sendFileError instanceof Error ? sendFileError.message : "No se pudo enviar el archivo.";
-        setError(message);
-        setSendError(message);
-        setLastFailedSend({ kind: "file", file, caption, replyTo });
-        return false;
-      } finally {
-        setSending(false);
-        setUploadsProgress((prev) => {
-          const next = { ...prev };
-          delete next[uploadId];
-          return next;
-        });
       }
     },
     [author, uid]
   );
 
   const retryLastFailedSend = useCallback(async () => {
-    if (!lastFailedSend || sending) return false;
-
-    if (lastFailedSend.kind === "text") {
-      return sendText(lastFailedSend.text, lastFailedSend.replyTo);
-    }
-
-    return sendFile(lastFailedSend.file, lastFailedSend.caption, lastFailedSend.replyTo);
-  }, [lastFailedSend, sendFile, sendText, sending]);
+    if (!lastFailedSend) return false;
+    return sendText(lastFailedSend.text, lastFailedSend.replyTo);
+  }, [lastFailedSend, sendText]);
 
   const loadMore = async () => {
     if (!uid || !oldestDoc || loadingMore || reachedEnd) return;
@@ -220,7 +170,7 @@ export const useMessages = (uid: string | null, author: string) => {
     if (!uid) return;
 
     try {
-      await deleteMessageAndAsset(uid, message);
+      await deleteMessageDoc(uid, message.id);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "No se pudo eliminar el mensaje.");
     }
@@ -233,15 +183,12 @@ export const useMessages = (uid: string | null, author: string) => {
     messages,
     loading,
     error,
-    sending,
     sendError,
     hasMore: Boolean(oldestDoc) && !reachedEnd,
     loadingMore,
-    uploadsProgress,
     fromCache,
     hasPendingWrites,
     sendText,
-    sendFile,
     retryLastFailedSend,
     loadMore,
     toggleStar,

@@ -10,11 +10,9 @@ import { applyTheme, getInitialTheme, ThemeMode } from "../features/theme/useThe
 
 interface Props {
   user: User;
-  pendingDropFile: File | null;
-  onClearPendingDropFile: () => void;
 }
 
-export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Props) => {
+export const ChatScreen = ({ user }: Props) => {
   const composerRef = useRef<HTMLInputElement>(null);
   const authorName = user.displayName?.trim() || user.email || "Anonimo";
 
@@ -22,17 +20,14 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
     messages,
     loading,
     error,
-    sending,
     sendError,
     sendText,
-    sendFile,
     retryLastFailedSend,
     clearError,
     clearSendError,
     loadMore,
     loadingMore,
     hasMore,
-    uploadsProgress,
     toggleStar,
     deleteMessage,
     fromCache,
@@ -121,23 +116,14 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
         onLoadMore={loadMore}
         loadingMore={loadingMore}
         hasMore={hasMore}
-        uploadsProgress={uploadsProgress}
       />
 
       <Composer
         ref={composerRef}
         onSendText={sendText}
-        onSendFile={sendFile}
         onRetrySend={retryLastFailedSend}
         onClearSendError={clearSendError}
-        sending={sending}
         sendError={sendError}
-        pendingFile={pendingDropFile}
-        onClearPendingFile={() => {
-          clearSendError();
-          onClearPendingDropFile();
-        }}
-        isOffline={isOffline}
         replyToMessage={replyToMessage}
         onClearReplyToMessage={() => setReplyToMessage(null)}
       />

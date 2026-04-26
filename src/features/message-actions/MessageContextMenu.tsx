@@ -3,11 +3,9 @@
 interface Props {
   x: number;
   y: number;
-  canOpen: boolean;
   isStarred: boolean;
   canCopy: boolean;
   onCopy: () => void;
-  onOpen: () => void;
   onToggleStar: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -17,11 +15,9 @@ interface Props {
 export const MessageContextMenu = ({
   x,
   y,
-  canOpen,
   isStarred,
   canCopy,
   onCopy,
-  onOpen,
   onToggleStar,
   onDelete,
   onClose,
@@ -93,11 +89,6 @@ export const MessageContextMenu = ({
         {canCopy ? (
           <button type="button" role="menuitem" onClick={onCopy}>
             Copiar
-          </button>
-        ) : null}
-        {canOpen ? (
-          <button type="button" role="menuitem" onClick={onOpen}>
-            Abrir archivo
           </button>
         ) : null}
         <button type="button" role="menuitem" onClick={onToggleStar}>

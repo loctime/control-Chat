@@ -30,7 +30,6 @@ const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar, onReply, o
   const time = formatHour(message.createdAt?.seconds);
 
   const canCopy = Boolean(message.text);
-  const canOpen = Boolean(message.fileURL);
 
   const closeMenu = () => setMenuPos(null);
 
@@ -107,15 +106,10 @@ const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar, onReply, o
           x={menuPos.x}
           y={menuPos.y}
           canCopy={canCopy}
-          canOpen={canOpen}
           isStarred={message.starred}
           returnFocusTo={menuAnchor}
           onCopy={() => {
             if (message.text) onCopy(message.text);
-            closeMenu();
-          }}
-          onOpen={() => {
-            if (message.fileURL) window.open(message.fileURL, "_blank", "noopener,noreferrer");
             closeMenu();
           }}
           onToggleStar={() => {

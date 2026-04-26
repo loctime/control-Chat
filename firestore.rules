@@ -1,4 +1,4 @@
-﻿rules_version = '2';
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
@@ -9,38 +9,9 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function validCommonMessageFields(data) {
-      return data.keys().hasOnly([
-          'type',
-          'text',
-          'fileURL',
-          'fileName',
-          'fileType',
-          'storagePath',
-          'createdAt',
-          'device',
-          'size',
-          'starred',
-          'author',
-          'replyToId',
-          'replyToText',
-          'replyToAuthor'
-        ])
-        && data.type in ['text', 'link', 'image', 'video', 'file']
-        && data.device in ['mobile', 'desktop']
-        && data.starred is bool
-        && data.createdAt is timestamp
-        && data.text is string
-        && data.author is string
-        && data.author.size() > 0
-        && data.author.size() <= 200
-        && validReplyFields(data);
-    }
-
     function validReplyFields(data) {
-      // Las tres propiedades deben estar todas presentes o todas ausentes,
-      // y cuando estan presentes deben ser strings (text/author pueden ser
-      // vacios en mensajes de archivo sin caption).
+      // Las tres propiedades de reply deben estar todas presentes o todas
+      // ausentes; cuando estan presentes deben ser strings (replyToId no vacio).
       let replyKeys = ['replyToId', 'replyToText', 'replyToAuthor'];
       return !data.keys().hasAny(replyKeys) || (
         data.keys().hasAll(replyKeys)
@@ -50,34 +21,30 @@ service cloud.firestore {
       );
     }
 
-    function validTextLikeMessage(data) {
-      return data.type in ['text', 'link']
-        && data.fileURL == null
-        && data.fileName == null
-        && data.fileType == null
-        && data.storagePath == null
-        && data.size == null
+    function validCreateMessage(data) {
+      return data.keys().hasOnly([
+          'type',
+          'text',
+          'createdAt',
+          'device',
+          'starred',
+          'author',
+          'replyToId',
+          'replyToText',
+          'replyToAuthor'
+        ])
+        && data.type in ['text', 'link']
+        && data.device in ['mobile', 'desktop']
+        && data.starred is bool
+        && data.createdAt is timestamp
+        && data.text is string
         && data.text.size() > 0
         && data.text.size() <= 2000
-        && (data.type != 'link' || data.text.matches('^https?://.+'));
-    }
-
-    function validFileLikeMessage(data) {
-      return data.type in ['image', 'video', 'file']
-        && data.fileURL is string
-        && data.fileURL.size() > 0
-        && data.fileName is string
-        && data.fileName.size() > 0
-        && (data.fileType == null || data.fileType is string)
-        && data.storagePath is string
-        && data.storagePath.size() > 0
-        && (data.size is int || data.size is float)
-        && data.size > 0
-        && data.text.size() <= 2000;
-    }
-
-    function validCreateMessage(data) {
-      return validCommonMessageFields(data) && (validTextLikeMessage(data) || validFileLikeMessage(data));
+        && (data.type != 'link' || data.text.matches('^https?://.+'))
+        && data.author is string
+        && data.author.size() > 0
+        && data.author.size() <= 200
+        && validReplyFields(data);
     }
 
     match /apps/control-chat/users/{userId} {
