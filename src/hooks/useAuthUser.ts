@@ -9,7 +9,9 @@ export const useAuthUser = () => {
   useEffect(() => {
     let unsub: (() => void) | undefined;
     completeRedirectSignIn()
-      .catch(() => {})
+      .catch((error) => {
+        console.error("[auth] completeRedirectSignIn fallo:", error);
+      })
       .then(() => {
         unsub = watchUser((nextUser) => {
           setUser(nextUser);

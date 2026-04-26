@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { ChevronDown } from "lucide-react";
 import { Message } from "../lib/types";
 import { MessageBubble } from "./MessageBubble";
 
@@ -55,6 +56,15 @@ export const MessageList = ({
     [messages, normalizedSearch]
   );
 
+  const scrollToBottom = () => {
+    if (!filtered.length) return;
+    listRef.current?.scrollToIndex({
+      index: filtered.length - 1,
+      align: "end",
+      behavior: "smooth"
+    });
+  };
+
   const scrollToMessage = (messageId: string) => {
     const index = filtered.findIndex((msg) => msg.id === messageId);
     if (index === -1) return;
@@ -72,12 +82,14 @@ export const MessageList = ({
   };
 
   useEffect(() => {
-    const hasNewMessages = filtered.length > previousCount.current;
-    if (hasNewMessages && isAtBottom) {
-      listRef.current?.scrollToIndex({ index: Math.max(filtered.length - 1, 0), behavior: "smooth" });
+    // Track messages.length (no filtered.length) para evitar disparar
+    // auto-scroll cuando el usuario tipea/limpia el buscador.
+    const hasNewMessages = messages.length > previousCount.current;
+    if (hasNewMessages && isAtBottom && filtered.length > 0) {
+      listRef.current?.scrollToIndex({ index: filtered.length - 1, behavior: "smooth" });
     }
-    previousCount.current = filtered.length;
-  }, [filtered.length, isAtBottom]);
+    previousCount.current = messages.length;
+  }, [messages.length, filtered.length, isAtBottom]);
 
   useEffect(() => {
     if (isAtBottom && Object.keys(uploadsProgress).length > 0) {
@@ -100,6 +112,27 @@ export const MessageList = ({
 
   return (
     <div className="message-list" id="chat-scroll">
+      {hasMore ? (
+        <button
+          type="button"
+          className="load-more load-more-floating"
+          onClick={onLoadMore}
+          disabled={loadingMore}
+        >
+          {loadingMore ? "Cargando..." : "Cargar anteriores"}
+        </button>
+      ) : null}
+      {!isAtBottom && filtered.length > 0 ? (
+        <button
+          type="button"
+          className="scroll-to-bottom"
+          onClick={scrollToBottom}
+          aria-label="Ir al final"
+          title="Ir al final"
+        >
+          <ChevronDown size={20} />
+        </button>
+      ) : null}
       <Virtuoso
         ref={listRef}
         style={{ height: "100%" }}
@@ -107,14 +140,6 @@ export const MessageList = ({
         atBottomThreshold={80}
         atBottomStateChange={setIsAtBottom}
         components={{
-          Header: () =>
-            hasMore ? (
-              <div className="list-header">
-                <button type="button" className="load-more" onClick={onLoadMore} disabled={loadingMore}>
-                  {loadingMore ? "Cargando..." : "Cargar anteriores"}
-                </button>
-              </div>
-            ) : null,
           Footer: () => (
             <>
               {Object.entries(uploadsProgress).map(([id, item]) => (

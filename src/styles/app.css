@@ -220,6 +220,7 @@ h1 {
   display: flex;
   flex-direction: column;
   padding: 0.8rem;
+  position: relative;
 }
 
 .message-list > div {
@@ -329,6 +330,20 @@ h1 {
   color: var(--muted);
 }
 
+.bubble-pending {
+  opacity: 0.75;
+}
+
+.pending-icon {
+  color: var(--muted);
+  animation: pending-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pending-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
 .star {
   color: #facc15;
 }
@@ -416,6 +431,55 @@ h1 {
   background: var(--surface-elevated);
   color: var(--text);
   padding: 0.3rem 0.8rem;
+}
+
+.load-more-floating {
+  position: absolute;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  margin: 0;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8rem;
+  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.load-more-floating:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.scroll-to-bottom {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface-elevated);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.scroll-to-bottom:hover {
+  background: color-mix(in srgb, var(--primary) 25%, var(--surface-elevated));
+  transform: translateY(-1px);
+}
+
+.scroll-to-bottom:active {
+  transform: translateY(0);
 }
 
 .upload-item {

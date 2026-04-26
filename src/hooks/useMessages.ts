@@ -9,6 +9,7 @@ import {
   subscribeToLatestMessages,
   toggleMessageStar
 } from "../lib/messages";
+import { loadCachedMessages, saveCachedMessages } from "../lib/messageCache";
 import { Message, ReplyTarget } from "../lib/types";
 import { buildUploadId } from "../features/uploads/uploadProgress";
 
@@ -36,14 +37,21 @@ export const useMessages = (uid: string | null, author: string) => {
     if (!uid) return;
 
     initialLoadedRef.current = false;
-    setMessages([]);
-    setLoading(true);
     setError(null);
     setSendError(null);
     setOldestDoc(null);
     setReachedEnd(false);
     setFromCache(false);
     setHasPendingWrites(false);
+
+    const cached = loadCachedMessages(uid);
+    if (cached && cached.length > 0) {
+      setMessages(cached);
+      setLoading(false);
+    } else {
+      setMessages([]);
+      setLoading(true);
+    }
 
     const unsub = subscribeToLatestMessages(
       uid,
@@ -57,15 +65,26 @@ export const useMessages = (uid: string | null, author: string) => {
           setReachedEnd(payload.messages.length < payload.pageSize);
           initialLoadedRef.current = true;
           setLoading(false);
+          saveCachedMessages(uid, payload.messages);
           return;
         }
 
         if (payload.changes.length > 0) {
-          setMessages((prev) => applyMessageChanges(prev, payload.changes));
+          setMessages((prev) => {
+            const next = applyMessageChanges(prev, payload.changes);
+            saveCachedMessages(uid, next);
+            return next;
+          });
         } else if (payload.messages.length > 0) {
-          // Recuperación: si el primer snapshot fue vacío (cache) y el actual trae mensajes
-          // pero docChanges() viene vacío, no nos quedamos con [].
-          setMessages((prev) => (prev.length === 0 ? payload.messages : prev));
+          // Recuperacion: si el primer snapshot fue vacio (cache) y el actual trae mensajes
+          // pero docChanges() viene vacio, no nos quedamos con [].
+          setMessages((prev) => {
+            if (prev.length === 0) {
+              saveCachedMessages(uid, payload.messages);
+              return payload.messages;
+            }
+            return prev;
+          });
           setReachedEnd(payload.messages.length < payload.pageSize);
         }
 
