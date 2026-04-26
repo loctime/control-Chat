@@ -19,6 +19,7 @@ interface MessageBase {
   replyToId: string | null;
   replyToText: string | null;
   replyToAuthor: string | null;
+  pending?: boolean;
 }
 
 export interface TextMessage extends MessageBase {

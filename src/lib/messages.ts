@@ -64,6 +64,7 @@ const mapMessage = (docSnap: QueryDocumentSnapshot<DocumentData>): Message => {
     device: (data.device as DeviceType) ?? "desktop",
     starred: Boolean(data.starred),
     author: typeof data.author === "string" ? data.author : "Anonimo",
+    pending: docSnap.metadata.hasPendingWrites,
     ...mapReply(data)
   };
 
@@ -208,6 +209,7 @@ export const subscribeToLatestMessages = (
 
   return onSnapshot(
     q,
+    { includeMetadataChanges: true },
     (snapshot) => {
       const messages = snapshot.docs.map(mapMessage).reverse();
       cb({
@@ -216,7 +218,7 @@ export const subscribeToLatestMessages = (
         fromCache: snapshot.metadata.fromCache,
         hasPendingWrites: snapshot.metadata.hasPendingWrites,
         pageSize,
-        changes: snapshot.docChanges()
+        changes: snapshot.docChanges({ includeMetadataChanges: true })
       });
     },
     (error) => onError(error)

@@ -330,6 +330,20 @@ h1 {
   color: var(--muted);
 }
 
+.bubble-pending {
+  opacity: 0.75;
+}
+
+.pending-icon {
+  color: var(--muted);
+  animation: pending-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pending-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
 .star {
   color: #facc15;
 }
