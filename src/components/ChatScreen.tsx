@@ -97,7 +97,11 @@ export const ChatScreen = ({ user, pendingDropFile, onClearPendingDropFile }: Pr
         onToggleTheme={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
       />
 
-      {isOffline ? <div className="status-banner">Sin conexion. Revisa tu red para sincronizar.</div> : null}
+      {isOffline ? (
+        <div className="status-banner">
+          Sin conexion. Tus mensajes se enviaran automaticamente al volver la red.
+        </div>
+      ) : null}
       {!isOffline && syncLabel ? <div className="status-banner">{syncLabel}</div> : null}
 
       {error ? (

@@ -48,6 +48,8 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const selectedFile = pendingFile ?? pickedFile;
+    const fileBlockedByOffline = Boolean(selectedFile && isOffline);
+    const sendDisabled = sending || fileBlockedByOffline;
 
     useEffect(() => {
       if (!selectedFile) {
@@ -139,6 +141,12 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
           </div>
         ) : null}
 
+        {fileBlockedByOffline ? (
+          <div className="composer-feedback" role="status" aria-live="polite">
+            <span>Sin conexion: los archivos se envian solo online. Quitalo o esperá la red.</span>
+          </div>
+        ) : null}
+
         <div className="composer-row">
           <label className="attach-btn" htmlFor="file-input" title="Adjuntar archivo">
             +
@@ -161,8 +169,8 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
             }}
           />
 
-          <button className="send-btn" type="submit" disabled={sending || isOffline}>
-            {isOffline ? "Offline" : sending ? "Enviando" : "Enviar"}
+          <button className="send-btn" type="submit" disabled={sendDisabled}>
+            {sending ? "Enviando" : "Enviar"}
           </button>
         </div>
       </form>
