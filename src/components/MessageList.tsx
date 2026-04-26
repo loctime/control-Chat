@@ -82,12 +82,14 @@ export const MessageList = ({
   };
 
   useEffect(() => {
-    const hasNewMessages = filtered.length > previousCount.current;
-    if (hasNewMessages && isAtBottom) {
-      listRef.current?.scrollToIndex({ index: Math.max(filtered.length - 1, 0), behavior: "smooth" });
+    // Track messages.length (no filtered.length) para evitar disparar
+    // auto-scroll cuando el usuario tipea/limpia el buscador.
+    const hasNewMessages = messages.length > previousCount.current;
+    if (hasNewMessages && isAtBottom && filtered.length > 0) {
+      listRef.current?.scrollToIndex({ index: filtered.length - 1, behavior: "smooth" });
     }
-    previousCount.current = filtered.length;
-  }, [filtered.length, isAtBottom]);
+    previousCount.current = messages.length;
+  }, [messages.length, filtered.length, isAtBottom]);
 
   useEffect(() => {
     if (isAtBottom && Object.keys(uploadsProgress).length > 0) {

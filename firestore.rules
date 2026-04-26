@@ -20,13 +20,34 @@ service cloud.firestore {
           'createdAt',
           'device',
           'size',
-          'starred'
+          'starred',
+          'author',
+          'replyToId',
+          'replyToText',
+          'replyToAuthor'
         ])
         && data.type in ['text', 'link', 'image', 'video', 'file']
         && data.device in ['mobile', 'desktop']
         && data.starred is bool
         && data.createdAt is timestamp
-        && data.text is string;
+        && data.text is string
+        && data.author is string
+        && data.author.size() > 0
+        && data.author.size() <= 200
+        && validReplyFields(data);
+    }
+
+    function validReplyFields(data) {
+      // Las tres propiedades deben estar todas presentes o todas ausentes,
+      // y cuando estan presentes deben ser strings (text/author pueden ser
+      // vacios en mensajes de archivo sin caption).
+      let replyKeys = ['replyToId', 'replyToText', 'replyToAuthor'];
+      return !data.keys().hasAny(replyKeys) || (
+        data.keys().hasAll(replyKeys)
+        && data.replyToId is string && data.replyToId.size() > 0
+        && data.replyToText is string
+        && data.replyToAuthor is string
+      );
     }
 
     function validTextLikeMessage(data) {
