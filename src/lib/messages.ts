@@ -259,12 +259,15 @@ export const applyMessageChanges = (current: Message[], changes: DocumentChange<
   return [...nextById.values()].sort((a, b) => toEpoch(a) - toEpoch(b));
 };
 
-export const sendTextMessage = async (uid: string, value: string, author: string, replyTo?: ReplyTarget | null) => {
+export const sendTextMessage = (uid: string, value: string, author: string, replyTo?: ReplyTarget | null): Promise<void> => {
   const payload = buildTextPayload(value, author, replyTo);
-  if (!payload) return;
+  if (!payload) return Promise.resolve();
 
   const msgRef = doc(messagesCollection(uid));
-  await setDoc(msgRef, payload);
+  // With persistentLocalCache, setDoc writes to the local cache synchronously and
+  // onSnapshot fires immediately — the message appears in the list before the server
+  // round-trip completes. We return the promise so callers can still catch hard errors.
+  return setDoc(msgRef, payload);
 };
 
 export const sendFileMessageWithProgress = async (

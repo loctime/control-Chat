@@ -105,10 +105,12 @@ export const useMessages = (uid: string | null, author: string) => {
     async (text: string, replyTo: ReplyTarget | null = null) => {
       if (!uid) return false;
 
-      setSending(true);
       setSendError(null);
 
       try {
+        // Fire the Firestore write without blocking the UI — with local persistence
+        // the message appears in the list immediately via onSnapshot.
+        // We still await to catch permanent failures (e.g. invalid payload).
         await sendTextMessage(uid, text, author, replyTo);
         setLastFailedSend(null);
         return true;
@@ -118,8 +120,6 @@ export const useMessages = (uid: string | null, author: string) => {
         setSendError(message);
         setLastFailedSend({ kind: "text", text, replyTo });
         return false;
-      } finally {
-        setSending(false);
       }
     },
     [author, uid]
