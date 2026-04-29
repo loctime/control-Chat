@@ -20,6 +20,8 @@ interface MessageBase {
   replyToText: string | null;
   replyToAuthor: string | null;
   pending?: boolean;
+  failed?: boolean;
+  clientId?: string | null;
 }
 
 export interface TextMessage extends MessageBase {

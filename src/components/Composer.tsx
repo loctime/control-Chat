@@ -10,8 +10,8 @@ import { ReplyPreview } from "./ReplyPreview";
 import { ReplyTarget } from "../lib/types";
 
 interface Props {
-  onSendText: (text: string, replyTo: ReplyTarget | null) => Promise<boolean>;
-  onRetrySend: () => Promise<boolean>;
+  onSendText: (text: string, replyTo: ReplyTarget | null) => boolean;
+  onRetrySend: () => boolean;
   onClearSendError: () => void;
   sendError: string | null;
   replyToMessage: ReplyTarget | null;
@@ -35,20 +35,19 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
 
     useImperativeHandle(ref, () => messageInputRef.current!);
 
-    const send = async (event: FormEvent) => {
+    const send = (event: FormEvent) => {
       event.preventDefault();
 
       if (!text.trim()) return;
 
-      // Clear immediately for instant feedback — restore on error
       const textToSend = text;
       const replyTo = replyToMessage;
-      setText("");
-      onClearReplyToMessage();
+      const sent = onSendText(textToSend, replyTo);
 
-      const sent = await onSendText(textToSend, replyTo);
-      if (!sent) {
-        setText(textToSend);
+      if (sent) {
+        // Envio en segundo plano: el mensaje ya esta visible via outbox optimista.
+        setText("");
+        onClearReplyToMessage();
       }
     };
 
@@ -66,7 +65,7 @@ export const Composer = forwardRef<HTMLInputElement, Props>(
         {sendError ? (
           <div className="composer-feedback" role="status" aria-live="polite">
             <span>Error al enviar. {sendError}</span>
-            <button type="button" className="ghost-btn" onClick={() => void onRetrySend()}>
+            <button type="button" className="ghost-btn" onClick={() => onRetrySend()}>
               Reintentar
             </button>
           </div>

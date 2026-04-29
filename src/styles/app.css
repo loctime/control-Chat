@@ -311,6 +311,14 @@ h1 {
   50% { opacity: 1; }
 }
 
+.bubble-failed {
+  border: 1px solid color-mix(in srgb, #ef4444 60%, transparent);
+}
+
+.failed-icon {
+  color: #ef4444;
+}
+
 .star {
   color: #facc15;
 }
