@@ -65,6 +65,7 @@ const mapMessage = (docSnap: QueryDocumentSnapshot<DocumentData>): Message => {
     starred: Boolean(data.starred),
     author: typeof data.author === "string" ? data.author : "Anonimo",
     pending: docSnap.metadata.hasPendingWrites,
+    clientId: typeof data.clientId === "string" ? data.clientId : null,
     ...mapReply(data)
   };
 };
@@ -175,13 +176,22 @@ export const applyMessageChanges = (current: Message[], changes: DocumentChange<
   return [...nextById.values()].sort((a, b) => toEpoch(a) - toEpoch(b));
 };
 
-export const sendTextMessage = (uid: string, value: string, author: string, replyTo?: ReplyTarget | null): Promise<void> => {
+export const sendTextMessage = (
+  uid: string,
+  value: string,
+  author: string,
+  replyTo?: ReplyTarget | null,
+  clientId?: string
+): Promise<void> => {
   const payload = buildTextPayload(value, author, replyTo);
   if (!payload) return Promise.resolve();
 
-  const msgRef = doc(messagesCollection(uid));
-  return setDoc(msgRef, payload);
+  const msgRef = clientId ? doc(messagesCollection(uid), clientId) : doc(messagesCollection(uid));
+  const finalPayload = clientId ? { ...payload, clientId } : payload;
+  return setDoc(msgRef, finalPayload);
 };
+
+export { MAX_TEXT_LENGTH };
 
 export const toggleMessageStar = async (uid: string, messageId: string, starred: boolean) => {
   await updateDoc(doc(messagesCollection(uid), messageId), {

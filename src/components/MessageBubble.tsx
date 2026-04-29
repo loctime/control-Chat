@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, type MouseEvent, type TouchEvent } from "react";
-import { Clock } from "lucide-react";
+import { AlertCircle, Clock } from "lucide-react";
 import { Message } from "../lib/types";
 import { MessageContextMenu } from "../features/message-actions/MessageContextMenu";
 import { MessageContent } from "../features/message-renderers/MessageContent";
@@ -63,9 +63,10 @@ const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar, onReply, o
   const messageTypeClass = useMemo(() => {
     let className = `bubble bubble-${message.type}`;
     if (isHighlighted) className += " bubble-highlighted";
-    if (message.pending) className += " bubble-pending";
+    if (message.failed) className += " bubble-failed";
+    else if (message.pending) className += " bubble-pending";
     return className;
-  }, [message.type, isHighlighted, message.pending]);
+  }, [message.type, isHighlighted, message.pending, message.failed]);
 
   return (
     <article
@@ -95,8 +96,12 @@ const MessageBubbleBase = ({ message, onCopy, onDelete, onToggleStar, onReply, o
       <footer className="bubble-meta">
         {message.starred ? <span className="star">*</span> : null}
         <span>{message.device === "mobile" ? "Movil" : "PC"}</span>
-        <span>{message.pending ? "Enviando..." : time}</span>
-        {message.pending ? (
+        <span>
+          {message.failed ? "Error" : message.pending ? "Enviando..." : time}
+        </span>
+        {message.failed ? (
+          <AlertCircle size={12} className="failed-icon" aria-label="No se pudo enviar" />
+        ) : message.pending ? (
           <Clock size={12} className="pending-icon" aria-label="Sincronizando" />
         ) : null}
       </footer>
