@@ -3,8 +3,10 @@ import { useAuthUser } from "./hooks/useAuthUser";
 
 const AuthScreen = lazy(() => import("./components/AuthScreen").then((module) => ({ default: module.AuthScreen })));
 const ChatScreen = lazy(() => import("./components/ChatScreen").then((module) => ({ default: module.ChatScreen })));
+const ControlFileTest = lazy(() => import("./pages/ControlFileTest").then((module) => ({ default: module.ControlFileTest })));
 
 const isDesktop = () => window.matchMedia("(min-width: 769px)").matches;
+const isDevelopment = import.meta.env.DEV;
 
 const App = () => {
   const { user, loading } = useAuthUser();
@@ -38,12 +40,37 @@ const App = () => {
 
   return (
     <Suspense fallback={<main className="loading-screen">Cargando SELF CHAT...</main>}>
+      {isDevelopment && (
+        <div style={{ 
+          position: 'fixed', 
+          top: '10px', 
+          right: '10px', 
+          zIndex: 9999,
+          backgroundColor: '#007bff',
+          color: 'white',
+          padding: '8px 12px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          textDecoration: 'none'
+        }}>
+          <a 
+            href="/controlfile-test" 
+            style={{ color: 'white', textDecoration: 'none' }}
+          >
+            🧪 ControlFile Test
+          </a>
+        </div>
+      )}
       {user ? (
-        <ChatScreen
-          user={user}
-          pendingDropFile={pendingDropFile}
-          onClearPendingDropFile={() => setPendingDropFile(null)}
-        />
+        window.location.pathname === '/controlfile-test' ? (
+          <ControlFileTest />
+        ) : (
+          <ChatScreen
+            user={user}
+            pendingDropFile={pendingDropFile}
+            onClearPendingDropFile={() => setPendingDropFile(null)}
+          />
+        )
       ) : (
         <AuthScreen />
       )}

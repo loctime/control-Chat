@@ -4,6 +4,19 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import "./styles/app.css";
 
+// Simple router for development test page
+const Root = () => {
+  if (window.location.pathname === '/controlfile-test') {
+    return <App />;
+  }
+  
+  return (
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+};
+
 registerSW({
   immediate: true,
   onRegisteredSW(swUrl: string) {
@@ -11,8 +24,5 @@ registerSW({
   }
 });
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+const root = ReactDOM.createRoot(document.getElementById("root")!);
+root.render(<Root />);
